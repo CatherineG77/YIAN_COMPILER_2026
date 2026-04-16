@@ -30,10 +30,14 @@ emit_symbol(Vec<Token>* tokens, str sym, u64 line, u64 col) {
 emit_word(Vec<Token>* tokens, String text, u64 line, u64 col) {
 	str w = text.as_str()
     // ========= TODO =========
-	// 调用 Keyword.from_word(w) 判断是否是关键字, 如果是则生成 Kw token, 否则生成 Ident token
-
-	push_token(tokens, TokenData.Ident(String.from("Dummy")), line, col)  // 这是一个示例，实际使用时请替换为正确的判断和输出
-
+	match Keyword.from_word(w) {
+		Some as kw {
+			push_token(tokens, TokenData.Kw(kw.val), line, col)
+		}
+		None {
+			push_token(tokens, TokenData.Ident(text), line, col)
+		}
+	}
     // ========================
 }
 
@@ -283,6 +287,8 @@ pub Vec<Token> tokenize(str source) {
                     // ========= TODO =========
                     // 1. 调用 emit_word 来将 buf 中的文本作为一个单词 token 发出, 注意传入正确的行列信息
 					// 2. 清空 buf
+					emit_word(&tokens, buf, tok_line, tok_col)
+					buf = String.new()
                     // ========= TODO =========
 					state = State.Start
 				}
@@ -299,6 +305,8 @@ pub Vec<Token> tokenize(str source) {
 					// 1. 调用 push_token 来将 buf 中的文本作为一个数字字面量 token 发出, 注意传入正确的行列信息
 					// 2. 注意使用 token.an 提供的工具函数
 					// 3. 清空 buf
+					push_token(&tokens, TokenData.Lit(Literal.from_number_text(buf.as_str())), tok_line, tok_col)
+					buf = String.new()
                     // ========= TODO =========
 					state = State.Start
 				}
@@ -312,6 +320,8 @@ pub Vec<Token> tokenize(str source) {
 					// 1. 调用 push_token 来将 buf 中的文本作为一个字符串字面量 token 发出, 注意传入正确的行列信息
 					// 2. 注意使用 token.an 提供的工具函数
 					// 3. 清空 buf
+					push_token(&tokens, TokenData.Lit(Literal.from_string_text(buf.as_str())), tok_line, tok_col)
+					buf = String.new()
 					// ========= TODO =========
 					state = State.Start
 					pos += 1
@@ -336,6 +346,8 @@ pub Vec<Token> tokenize(str source) {
 					// 1. 调用 push_token 来将 buf 中的文本作为一个字符字面量 token 发出, 注意传入正确的行列信息
 					// 2. 注意使用 token.an 提供的工具函数
 					// 3. 清空 buf
+					push_token(&tokens, TokenData.Lit(Literal.from_char_text(buf.as_str())), tok_line, tok_col)
+					buf = String.new()
 					// ========= TODO =========
 					state = State.Start
 					pos += 1
@@ -359,6 +371,12 @@ pub Vec<Token> tokenize(str source) {
             // 更新 line 和 col 以正确反映当前扫描位置
             // 注意处理换行符 '\n'，它会增加 line 并重置 col
             // 其他字符则增加 col
+			if bytes[old_pos] == b'\n' {
+				line += 1
+				col = 1
+			} else {
+				col += 1
+			}
             // ========= TODO =========
 			old_pos += 1
 		}

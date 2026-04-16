@@ -16,7 +16,7 @@ $ pip install -r ./requirements.txt
 编译并运行一个示例程序 `hello.an`:
 
 ```bash
-$ scripts/yian_compiler.py lab/test_cases/hello.an
+$ scripts/yian_compiler.py labs/lab1/test_cases/hello.an
 ```
 
 可执行文件生成在 `tests/yian_workspace/bin/out`, 执行:
