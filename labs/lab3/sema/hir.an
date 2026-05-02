@@ -1,0 +1,77 @@
+from std.core.vec import Vec
+from std.core.string import String
+from std.core.option import Option
+
+from ast import Pattern
+from expr import BinaryOp, UnaryOp, Literal
+from type import StructField, EnumVariant
+
+pub struct HFuncDef {
+    pub u64 type_id
+    pub Vec<HStmt> body
+    pub Vec<u64> local_vars
+}
+
+pub enum HStmt {
+    ExprStmt { HExpr expr }
+    Delete { HExpr target }
+    Return { Option<HExpr> value }
+
+    If {
+        HExpr condition
+        Vec<HStmt> then_branch
+        Option<Vec<HStmt>> else_branch
+    }
+    Loop {
+        Vec<HStmt> body
+    }
+    Match {
+        HExpr value
+        Vec<(Pattern, Vec<HStmt>)> arms
+    }
+
+    Break, Continue
+}
+
+pub struct HExpr {
+    pub HExprKind kind
+    pub bool is_lvalue
+    pub u64 type_id
+}
+
+pub enum HExprKind {
+    Lit { Literal lit }
+    Var { u64 var_symbol_id }
+    Binary {
+        HExpr* left
+        BinaryOp op
+        HExpr* right
+    }
+    Unary {
+        UnaryOp op
+        HExpr* operand
+    }
+    Call {
+        u64 func_symbol_id
+        Vec<HExpr> args
+    }
+    Construct {
+        u64 struct_type_id
+        Vec<HExpr> field_values
+    }
+    Cast {
+        u64 target_type_id
+        HExpr* operand
+    }
+    FieldAccess {
+        HExpr* base
+        StructField field
+    }
+    VariantAccess {
+        u64 enum_type_id
+        EnumVariant variant
+    }
+    Dyn {
+        Option<HExpr*> array_size
+    }
+}

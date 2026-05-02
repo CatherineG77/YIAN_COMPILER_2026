@@ -1,0 +1,79 @@
+from std.core.string import String
+from std.collections.hash_map import HashMap
+from std.core.option import Option
+
+pub enum SymbolKind {
+    Function,
+    Struct,
+    Enum,
+    Variable
+}
+
+pub struct Symbol {
+    pub u64 symbol_id
+    pub String name
+    pub SymbolKind kind
+    pub u64 type_id
+}
+
+pub struct Scope {
+    pub HashMap<String, u64> symbols
+    pub Option<Scope*> parent
+}
+
+pub struct SymbolCtx {
+    pub HashMap<u64, Symbol> all_symbols
+    pub u64 next_id
+    pub Scope* current_scope
+
+    pub static SymbolCtx new() {
+        Scope* global_scope = dyn Scope(symbols=HashMap<String, u64>.new(), parent=Option<Scope*>.None)
+        return Self(all_symbols=HashMap<u64, Symbol>.new(), next_id=0, current_scope=global_scope)
+    }
+
+    pub void enter_scope() {
+        Scope* new_scope = dyn Scope(symbols=HashMap<String, u64>.new(), parent=Option<Scope*>.Some(self.current_scope))
+        self.current_scope = new_scope
+    }
+
+    pub void exit_scope() {
+        if self.current_scope.parent.is_some() {
+            Scope* old_scope = self.current_scope
+            self.current_scope = self.current_scope.parent.unwrap()
+            del old_scope
+        } else {
+            panic("Cannot exit global scope")
+        }
+    }
+
+    pub u64 add_symbol(String name, SymbolKind kind, u64 type_id) {
+        u64 id = self.next_id
+        self.next_id += 1
+        Symbol sym = Symbol(symbol_id=id, name=name, kind=kind, type_id=type_id)
+        self.all_symbols.insert(id, sym)
+        self.current_scope.symbols.insert(name, id)
+        return id
+    }
+    
+    pub Symbol* get_symbol(u64 id) {
+        if self.all_symbols.contains(id) {
+            return &self.all_symbols[id]
+        }
+        panic((String.from("Symbol ID not found: ") + id.to_string()).as_str())
+    }
+    
+    pub Option<u64> lookup(String name) {
+        Scope* curr = self.current_scope
+        loop {
+            if curr.symbols.contains(name) {
+                return Option<u64>.Some(curr.symbols[name])
+            }
+            if curr.parent.is_some() {
+                curr = curr.parent.unwrap()
+            } else {
+                break
+            }
+        }
+        return Option<u64>.None
+    }
+}

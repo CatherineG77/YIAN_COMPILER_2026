@@ -1,0 +1,95 @@
+from std.core.vec import Vec
+from std.core.string import String
+from std.collections.hash_map import HashMap
+
+pub struct StructField {
+    pub String name
+    pub u64 type_id
+}
+
+pub struct EnumVariant {
+    pub String name
+}
+
+pub struct FuncParam {
+    pub String name
+    pub u64 type_id
+}
+
+pub enum TypeKind {
+    Unknown,
+    I8, I16, I32, I64,
+    U8, U16, U32, U64,
+    F32, F64,
+    Char, Bool, Str, Void,
+    Array {
+        u64 element_type_id
+        u64 length
+    }
+    Pointer {
+        u64 pointee_type_id
+    }
+    Struct {
+        String name
+        Vec<StructField> fields
+    }
+    Enum {
+        String name
+        Vec<EnumVariant> variants
+    }
+    Function {
+        String name
+        Vec<FuncParam> params
+        u64 return_type_id
+    }
+}
+
+pub struct Type {
+    pub u64 type_id
+    pub TypeKind kind
+}
+
+pub struct TypeCtx {
+    pub HashMap<u64, Type> types
+    pub u64 next_id
+
+    pub static TypeCtx new() {
+        Self type_ctx = TypeCtx(types=HashMap<u64, Type>.new(), next_id=100)
+
+        // 预定义基本类型
+        type_ctx.predefine_type(1, TypeKind::I8)
+        type_ctx.predefine_type(2, TypeKind::I16)
+        type_ctx.predefine_type(3, TypeKind::I32)
+        type_ctx.predefine_type(4, TypeKind::I64)
+        type_ctx.predefine_type(5, TypeKind::U8)
+        type_ctx.predefine_type(6, TypeKind::U16)
+        type_ctx.predefine_type(7, TypeKind::U32)
+        type_ctx.predefine_type(8, TypeKind::U64)
+        type_ctx.predefine_type(9, TypeKind::F32)
+        type_ctx.predefine_type(10, TypeKind::F64)
+        type_ctx.predefine_type(11, TypeKind::Char)
+        type_ctx.predefine_type(12, TypeKind::Bool)
+        type_ctx.predefine_type(13, TypeKind::Str)
+        type_ctx.predefine_type(14, TypeKind::Void)
+
+        return type_ctx
+    }
+
+    predefine_type(u64 id, TypeKind kind) {
+        self.types.insert(id, Type(type_id=id, kind=kind))
+    }
+
+    pub u64 add_type(TypeKind kind) {
+        u64 id = self.next_id
+        self.next_id += 1
+        self.types.insert(id, Type(type_id=id, kind=kind))
+        return id
+    }
+    
+    pub Type* get_type(u64 id) {
+        if self.types.contains(id) {
+            return &self.types[id]
+        }
+        panic((String.from("Type ID not found: ") + id.to_string()).as_str())
+    }
+}
