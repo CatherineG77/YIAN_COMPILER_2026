@@ -55,39 +55,43 @@ pub struct EnumDef {
     pub Vec<String> variants
 }
 
+pub struct VarDeclStmt {
+    pub VarInfo info
+    pub Option<Expr> init
+}
+pub struct IfStmt {
+    pub Expr condition
+    pub Vec<Stmt> then_branch
+    pub Option<Vec<Stmt>> else_branch
+}
+pub struct WhileStmt {
+    pub Expr condition
+    pub Vec<Stmt> body
+}
+pub struct ForStmt {
+    pub Option<Stmt*> init
+    pub Option<Expr> condition
+    pub Option<Expr> update
+    pub Vec<Stmt> body
+}
+pub struct MatchStmt {
+    pub Expr value
+    pub Vec<(Pattern, Vec<Stmt>)> arms
+}
+
 pub enum Stmt {
-    // Basic statements
-    VarDecl {
-        VarInfo info
-        Option<Expr> init
-    }
+    VarDecl { VarDeclStmt s }
     ExprStmt { Expr expr }
     Delete {
         Expr target
     }
-    // Control flow statements
-    If {
-        Expr condition
-        Vec<Stmt> then_branch
-        Option<Vec<Stmt>> else_branch
-    }
+    If { IfStmt s }
     Loop {
         Vec<Stmt> body
     }
-    While {
-        Expr condition
-        Vec<Stmt> body
-    }
-    For {
-        Option<Stmt*> init
-        Option<Expr> condition
-        Option<Expr> update
-        Vec<Stmt> body
-    }
-    Match {
-        Expr value
-        Vec<(Pattern, Vec<Stmt>)> arms
-    }
+    While { WhileStmt s }
+    For { ForStmt s }
+    Match { MatchStmt s }
     Return {
         Option<Expr> value
     }
@@ -154,17 +158,20 @@ impl Expr {
         guides.push(not is_last)
 
         match *self {
-            Lit as l {
+            Lit as _l {
+                LitExpr l = _l.e
                 out += "Literal: "
                 out += l.lit.to_string()
                 out += "\n"
             }
-            Ident as i {
+            Ident as _i {
+                IdentExpr i = _i.e
                 out += "Identifier: "
                 out += i.name
                 out += "\n"
             }
-            Binary as b {
+            Binary as _b {
+                BinaryExpr b = _b.e
                 out += "BinaryOp: "
                 out += b.op.to_string()
                 out += "\n"
@@ -172,28 +179,32 @@ impl Expr {
                 out += b.left.export(guides, false)
                 out += b.right.export(guides, true)
             }
-            Unary as u {
+            Unary as _u {
+                UnaryExpr u = _u.e
                 out += "UnaryOp: "
                 out += u.op.to_string()
                 out += "\n"
 
                 out += u.operand.export(guides, true)
             }
-            Call as c {
+            Call as _c {
+                CallExpr c = _c.e
                 out += "Call: callee = "
                 out += c.callee
                 out += "\n"
 
                 out += export_items(c.args, guides)
             }
-            FieldAccess as f {
+            FieldAccess as _f {
+                FieldAccessExpr f = _f.e
                 out += "FieldAccess: field = "
                 out += f.field
                 out += "\n"
 
                 out += f.base.export(guides, true)
             }
-            Dyn as d {
+            Dyn as _d {
+                DynExpr d = _d.e
                 out += "Dyn: type = "
                 out += d.type.to_string()
                 out += "\n"
@@ -323,7 +334,8 @@ impl Stmt {
         String out = prefix(guides, is_last)
 
         match *self {
-            VarDecl as v {
+            VarDecl as _v {
+                VarDeclStmt v = _v.s
                 out += "VarDecl: "
                 out += v.info.to_string()
                 out += "\n"
@@ -340,9 +352,10 @@ impl Stmt {
                 }
             }
             ExprStmt as e {
+                Expr expr = e.expr
                 out += "ExprStmt:\n"
                 guides.push(not is_last)
-                out += e.expr.export(guides, true)
+                out += expr.export(guides, true)
                 guides.pop()
             }
             Delete as d {
@@ -351,7 +364,8 @@ impl Stmt {
                 out += d.target.export(guides, true)
                 guides.pop()
             }
-            If as i {
+            If as _i {
+                IfStmt i = _i.s
                 out += "If:\n"
                 guides.push(not is_last)
 
@@ -382,7 +396,8 @@ impl Stmt {
 
                 guides.pop()
             }
-            Loop as l {
+            Loop as _l {
+                LoopStmt l = _l.s
                 out += "Loop:\n"
                 guides.push(not is_last)
 
@@ -394,7 +409,8 @@ impl Stmt {
 
                 guides.pop()
             }
-            While as w {
+            While as _w {
+                WhileStmt w = _w.s
                 out += "While:\n"
                 guides.push(not is_last)
 
@@ -412,7 +428,8 @@ impl Stmt {
 
                 guides.pop()
             }
-            For as f {
+            For as _f {
+                ForStmt f = _f.s
                 out += "For:\n"
                 guides.push(not is_last)
 
@@ -450,7 +467,8 @@ impl Stmt {
 
                 guides.pop()
             }
-            Match as m {
+            Match as _m {
+                MatchStmt m = _m.s
                 out += "Match:\n"
                 guides.push(not is_last)
 

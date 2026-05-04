@@ -59,10 +59,6 @@ pub enum HExprKind {
         u64 struct_type_id
         Vec<HExpr> field_values
     }
-    Cast {
-        u64 target_type_id
-        HExpr* operand
-    }
     FieldAccess {
         HExpr* base
         StructField field

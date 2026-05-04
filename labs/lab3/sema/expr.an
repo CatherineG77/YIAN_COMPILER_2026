@@ -6,30 +6,36 @@ from std.core.fmt import ToString
 from ast import ASTType
 from token import Keyword, Token
 
+pub struct BinaryExpr {
+    pub Expr* left
+    pub BinaryOp op
+    pub Expr* right
+}
+pub struct UnaryExpr {
+    pub UnaryOp op
+    pub Expr* operand
+}
+pub struct CallExpr {
+    pub String callee
+    pub Vec<Expr> args
+}
+pub struct FieldAccessExpr {
+    pub Expr* base
+    pub String field
+}
+pub struct DynExpr {
+    pub ASTType type
+    pub Option<Expr*> array_size
+}
+
 pub enum Expr {
     Lit { Literal lit }
     Ident { String name }
-    Binary {
-        Expr* left
-        BinaryOp op
-        Expr* right
-    }
-    Unary {
-        UnaryOp op
-        Expr* operand
-    }
-    Call {
-        String callee
-        Vec<Expr> args
-    }
-    FieldAccess {
-        Expr* base
-        String field
-    }
-    Dyn {
-        ASTType type
-        Option<Expr*> array_size
-    }
+    Binary { BinaryExpr e }
+    Unary { UnaryExpr e }
+    Call { CallExpr e }
+    FieldAccess { FieldAccessExpr e }
+    Dyn { DynExpr e }
 }
 
 pub enum Literal {

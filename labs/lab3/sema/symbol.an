@@ -25,18 +25,20 @@ pub struct SymbolCtx {
     pub HashMap<u64, Symbol> all_symbols
     pub u64 next_id
     pub Scope* current_scope
+}
 
+impl SymbolCtx {
     pub static SymbolCtx new() {
         Scope* global_scope = dyn Scope(symbols=HashMap<String, u64>.new(), parent=Option<Scope*>.None)
         return Self(all_symbols=HashMap<u64, Symbol>.new(), next_id=0, current_scope=global_scope)
     }
 
-    pub void enter_scope() {
+    pub enter_scope() {
         Scope* new_scope = dyn Scope(symbols=HashMap<String, u64>.new(), parent=Option<Scope*>.Some(self.current_scope))
         self.current_scope = new_scope
     }
 
-    pub void exit_scope() {
+    pub exit_scope() {
         if self.current_scope.parent.is_some() {
             Scope* old_scope = self.current_scope
             self.current_scope = self.current_scope.parent.unwrap()
@@ -75,5 +77,13 @@ pub struct SymbolCtx {
             }
         }
         return Option<u64>.None
+    }
+
+    pub u64 lookup_strict(String name) {
+        Option<u64> res = self.lookup(name.clone())
+        if res.is_some() {
+            return res.unwrap()
+        }
+        panic((String.from("Symbol not found: ") + name).as_str())
     }
 }
