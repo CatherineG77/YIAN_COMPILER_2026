@@ -8,10 +8,13 @@ from token import Token
 from parser import Parser
 from ast import Program
 
-write_sema_output(str output_path, Sema* sema) {
+from sema import Sema, HIRProgram
+from hir import HProgram
+
+write_sema_output(str output_path, HProgram* hir_program) {
     String out = String.new()
     out += "=== Semantic Analysis Output ===\n"
-    out += sema.export()
+    out += hir_program.export()
     write_file(output_path, out.as_str())
 }
 
@@ -46,7 +49,8 @@ i32 main() {
 
         Sema sema = Sema.new(program)
         sema.analyze()
-        write_sema_output(output_path, &sema)
+        HIRProgram hir_program = sema.export()
+        write_sema_output(output_path, &hir_program.program)
 
         print("Semantic Analysis done. Output written to: ")
         print(output_path)

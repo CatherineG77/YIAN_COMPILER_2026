@@ -29,8 +29,8 @@ pub struct DynExpr {
 }
 
 pub enum Expr {
-    Lit { Literal lit }
-    Ident { String name }
+    Lit { Literal e }
+    Ident { String e }
     Binary { BinaryExpr e }
     Unary { UnaryExpr e }
     Call { CallExpr e }

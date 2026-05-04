@@ -3,7 +3,7 @@ from std.core.string import String
 from std.core.option import Option
 from std.core.fmt import ToString
 
-from expr import Expr
+from expr import Expr, Literal, BinaryExpr, UnaryExpr, CallExpr, FieldAccessExpr, DynExpr
 
 pub enum ASTType {
     // Basic types
@@ -64,6 +64,9 @@ pub struct IfStmt {
     pub Vec<Stmt> then_branch
     pub Option<Vec<Stmt>> else_branch
 }
+pub struct LoopStmt {
+    pub Vec<Stmt> body
+}
 pub struct WhileStmt {
     pub Expr condition
     pub Vec<Stmt> body
@@ -78,23 +81,20 @@ pub struct MatchStmt {
     pub Expr value
     pub Vec<(Pattern, Vec<Stmt>)> arms
 }
+pub struct ReturnStmt {
+    pub Option<Expr> value
+}
 
 pub enum Stmt {
     VarDecl { VarDeclStmt s }
     ExprStmt { Expr expr }
-    Delete {
-        Expr target
-    }
+    Delete { Expr target }
     If { IfStmt s }
-    Loop {
-        Vec<Stmt> body
-    }
+    Loop { LoopStmt s }
     While { WhileStmt s }
     For { ForStmt s }
     Match { MatchStmt s }
-    Return {
-        Option<Expr> value
-    }
+    Return { ReturnStmt s }
     Break, Continue
 }
 
@@ -159,15 +159,15 @@ impl Expr {
 
         match *self {
             Lit as _l {
-                LitExpr l = _l.e
+                Literal l = _l.e
                 out += "Literal: "
-                out += l.lit.to_string()
+                out += l.to_string()
                 out += "\n"
             }
             Ident as _i {
-                IdentExpr i = _i.e
+                String i = _i.e
                 out += "Identifier: "
-                out += i.name
+                out += i
                 out += "\n"
             }
             Binary as _b {
@@ -497,7 +497,8 @@ impl Stmt {
 
                 guides.pop()
             }
-            Return as r {
+            Return as _r {
+                ReturnStmt r = _r.s
                 out += "Return"
                 guides.push(not is_last)
 
