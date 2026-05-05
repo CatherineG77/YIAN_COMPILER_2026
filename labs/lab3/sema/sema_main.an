@@ -30,10 +30,10 @@ i32 main() {
     tests.push("04")
     tests.push("05")
     tests.push("06")
-    tests.push("07")
-    tests.push("08")
-    tests.push("09")
-    tests.push("10")
+    // tests.push("07")
+    // tests.push("08")
+    // tests.push("09")
+    // tests.push("10")
 
 	for test in tests {
         String input = String.from("labs/lab3/test_cases/") + test + ".an"

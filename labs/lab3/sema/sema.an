@@ -1,0 +1,913 @@
+from std.core.string import String
+from std.core.vec import Vec
+from std.core.option import Option
+
+from ast import Program, ProgramItem, ASTType, Stmt, Pattern, VarInfo, VarDeclStmt, IfStmt, LoopStmt, WhileStmt, ForStmt, MatchStmt, ReturnStmt
+from expr import Expr, UnaryOp, BinaryOp, Literal, BinaryExpr, UnaryExpr, CallExpr, FieldAccessExpr, DynExpr
+from type import Type, TypeCtx, TypeKind, FuncParam, StructField, EnumVariant, FunctionType, ArrayType, StructType, EnumType, PointerType
+from symbol import Symbol, SymbolCtx, SymbolKind
+from hir import HFuncDef, HStmt, HExpr, HExprKind, HProgram
+
+pub struct Sema {
+    Program program
+    TypeCtx type_ctx
+    SymbolCtx symbol_ctx
+    Vec<HFuncDef> funcs
+
+    u64 current_func_type_id
+    Vec<Option<Expr>> current_loop_updates
+    Vec<u64> current_func_locals
+}
+
+pub struct HIRProgram {
+    pub HProgram program
+    pub TypeCtx type_ctx
+    pub SymbolCtx symbol_ctx
+}
+
+impl Sema {
+    pub static Sema new(Program program) {
+        return Self(
+            program=program,
+            type_ctx=TypeCtx.new(),
+            symbol_ctx=SymbolCtx.new(),
+            funcs=Vec<HFuncDef>.new(),
+            current_func_type_id=0,
+            current_loop_updates=Vec<Option<Expr>>.new(),
+            current_func_locals=Vec<u64>.new()
+        )
+    }
+
+    pub analyze() {
+        self.pass1_collect_global_symbols()
+        self.pass2_parse_global_symbol_definitions()
+        self.pass3_parse_function_bodies()
+    }
+
+    pass1_collect_global_symbols() {
+        for item in self.program.items {
+            match item {
+                Func as f {
+                    String name = f.func_def.name.clone()
+                    u64 type_id = self.type_ctx.add_type(TypeKind.Function(FunctionType(
+                        name=name.clone(),
+                        params=Vec<FuncParam>.new(),
+                        return_type_id=14 
+                    )))
+                    self.symbol_ctx.add_symbol(name, SymbolKind.Function, type_id)
+                }
+                Struct as s {
+                    String name = s.struct_def.name.clone()
+                    u64 type_id = self.type_ctx.add_type(TypeKind.Struct(StructType(
+                        name=name.clone(),
+                        fields=Vec<StructField>.new()
+                    )))
+                    self.symbol_ctx.add_symbol(name, SymbolKind.Struct, type_id)
+                }
+                Enum as e {
+                    String name = e.enum_def.name.clone()
+                    u64 type_id = self.type_ctx.add_type(TypeKind.Enum(EnumType(
+                        name=name.clone(),
+                        variants=Vec<EnumVariant>.new()
+                    )))
+                    self.symbol_ctx.add_symbol(name, SymbolKind.Enum, type_id)
+                }
+            }
+        }
+    }
+
+    pass2_parse_global_symbol_definitions() {
+        for item in self.program.items {
+            match item {
+                Func as f {
+                    u64 sym_id = self.symbol_ctx.lookup_strict(f.func_def.name.clone())
+                    u64 type_id = self.symbol_ctx.get_symbol(sym_id).type_id
+                    
+                    Vec<FuncParam> params = Vec<FuncParam>.new()
+                    for param in f.func_def.params {
+                        params.push(FuncParam(
+                            name=param.name.clone(),
+                            type_id=self.resolve_ast_type(&param.type)
+                        ))
+                    }
+                    
+                    u64 return_type_id = self.resolve_ast_type(&f.func_def.return_type)
+                    self.type_ctx.get_type(type_id).kind = TypeKind.Function(FunctionType(
+                        name=f.func_def.name.clone(),
+                        params=params,
+                        return_type_id=return_type_id
+                    ))
+                }
+                Struct as s {
+                    u64 sym_id = self.symbol_ctx.lookup_strict(s.struct_def.name.clone())
+                    u64 type_id = self.symbol_ctx.get_symbol(sym_id).type_id
+                    
+                    Vec<StructField> fields = Vec<StructField>.new()
+                    for field in s.struct_def.fields {
+                        fields.push(StructField(
+                            name=field.name.clone(),
+                            type_id=self.resolve_ast_type(&field.type)
+                        ))
+                    }
+                    
+                    self.type_ctx.get_type(type_id).kind = TypeKind.Struct(StructType(
+                        name=s.struct_def.name.clone(),
+                        fields=fields
+                    ))
+                }
+                Enum as e {
+                    u64 sym_id = self.symbol_ctx.lookup_strict(e.enum_def.name.clone())
+                    u64 type_id = self.symbol_ctx.get_symbol(sym_id).type_id
+                    
+                    Vec<EnumVariant> variants = Vec<EnumVariant>.new()
+                    for v_name in e.enum_def.variants {
+                        variants.push(EnumVariant(name=v_name.clone()))
+                    }
+                    
+                    self.type_ctx.get_type(type_id).kind = TypeKind.Enum(EnumType(
+                        name=e.enum_def.name.clone(),
+                        variants=variants
+                    ))
+                }
+            }
+        }
+    }
+
+    pass3_parse_function_bodies() {
+        for item in self.program.items {
+            match item {
+                Func as f {
+                    u64 sym_id = self.symbol_ctx.lookup_strict(f.func_def.name.clone())
+                    u64 func_type_id = self.symbol_ctx.get_symbol(sym_id).type_id
+                    
+                    FunctionType func_type = self.type_ctx.get_type(func_type_id).kind.as_function()
+
+                    self.current_func_type_id = func_type_id
+                    self.current_func_locals.clear()
+
+                    self.symbol_ctx.enter_scope()
+
+                    for param in func_type.params {
+                        u64 param_sym_id = self.symbol_ctx.add_symbol(
+                            param.name.clone(), 
+                            SymbolKind.Variable,
+                            param.type_id
+                        )
+                        self.current_func_locals.push(param_sym_id)
+                    }
+
+                    Vec<HStmt> body = Vec<HStmt>.new()
+                    for stmt in f.func_def.body {
+                        self.parse_stmt(&stmt, &body)
+                    }
+
+                    self.symbol_ctx.exit_scope()
+
+                    self.funcs.push(HFuncDef(
+                        type_id=func_type_id,
+                        body=body,
+                        local_vars=self.current_func_locals.clone()
+                    ))
+                }
+                _ {}
+            }
+        }
+    }
+
+    u64 resolve_ast_type(ASTType* ast_type) {
+        match *ast_type {
+            I8 { return 1 }
+            I16 { return 2 }
+            I32 { return 3 }
+            I64 { return 4 }
+            U8 { return 5 }
+            U16 { return 6 }
+            U32 { return 7 }
+            U64 { return 8 }
+            F32 { return 9 }
+            F64 { return 10 }
+            Char { return 11 }
+            Bool { return 12 }
+            Str { return 13 }
+            Void { return 14 }
+            Array as arr {
+                u64 elem_type_id = self.resolve_ast_type(arr.element_type)
+                return self.type_ctx.add_type(TypeKind.Array(ArrayType(
+                    element_type_id=elem_type_id,
+                    length=arr.length
+                )))
+            }
+            Pointer as ptr {
+                u64 pointee_type_id = self.resolve_ast_type(ptr.pointee_type)
+                return self.type_ctx.add_type(TypeKind.Pointer(PointerType(
+                    pointee_type_id=pointee_type_id
+                )))
+            }
+            Custom as custom {
+                u64 sym_id = self.symbol_ctx.lookup_strict(custom.name.clone())
+                return self.symbol_ctx.get_symbol(sym_id).type_id
+            }
+        }
+    }
+
+    type_mismatch_error(u64 expected_type_id, u64 actual_type_id) {
+        String expected_type = self.type_ctx.get_name(expected_type_id)
+        String actual_type = self.type_ctx.get_name(actual_type_id)
+        panic((String.from("Type mismatch. Expected: ") + expected_type + ", but got: " + actual_type).as_str())
+    }
+
+    parse_stmt(Stmt* stmt, Vec<HStmt>* out) {
+        match *stmt {
+            If as _i {
+                IfStmt i = _i.s
+                self.parse_if_stmt(&i, out)
+            }
+            Loop as _l {
+                LoopStmt l = _l.s
+                self.parse_loop_stmt(&l, out)
+            }
+            While as _w {
+                WhileStmt w = _w.s
+                self.parse_while_stmt(&w, out)
+            }
+            For as _f {
+                ForStmt f = _f.s
+                self.parse_for_stmt(&f, out)
+            }
+            Match as _m {
+                MatchStmt m = _m.s
+                self.parse_match_stmt(&m, out)
+            }
+            Return as _r {
+                ReturnStmt r = _r.s
+                self.parse_return_stmt(&r, out)
+            }
+            Break { self.parse_break_stmt(out) }
+            Continue { self.parse_continue_stmt(out) }
+            VarDecl as _v {
+                VarDeclStmt v = _v.s
+                self.parse_var_decl_stmt(&v, out)
+            }
+            ExprStmt as _e {
+                Expr e = _e.expr
+                self.parse_expr_stmt(&e, out)
+            }
+            Delete as _d {
+                Expr d = _d.target
+                self.parse_delete_stmt(&d, out)
+            }
+        }
+    }
+
+    parse_if_stmt(IfStmt* i, Vec<HStmt>* out) {
+        HExpr condition = self.parse_expr(&i.condition, Option<u64>.Some(12)) // Bool type_id is 12
+        
+        self.symbol_ctx.enter_scope()
+        Vec<HStmt> then_branch = Vec<HStmt>.new()
+        for stmt in i.then_branch {
+            self.parse_stmt(&stmt, &then_branch)
+        }
+        self.symbol_ctx.exit_scope()
+
+        Option<Vec<HStmt>> else_branch = Option<Vec<HStmt>>.None
+        if i.else_branch.is_some() {
+            self.symbol_ctx.enter_scope()
+            Vec<HStmt> branch = Vec<HStmt>.new()
+            for stmt in i.else_branch.unwrap() {
+                self.parse_stmt(&stmt, &branch)
+            }
+            self.symbol_ctx.exit_scope()
+            else_branch = Option<Vec<HStmt>>.Some(branch)
+        }
+
+        out.push(HStmt.If(condition=condition, then_branch=then_branch, else_branch=else_branch))
+    }
+
+    parse_loop_stmt(LoopStmt* l, Vec<HStmt>* out) {
+        self.current_loop_updates.push(Option<Expr>.None) // loop has no update
+        
+        self.symbol_ctx.enter_scope()
+        Vec<HStmt> body = Vec<HStmt>.new()
+        for stmt in l.body {
+            self.parse_stmt(&stmt, &body)
+        }
+        self.symbol_ctx.exit_scope()
+        
+        self.current_loop_updates.pop()
+        out.push(HStmt.Loop(body=body))
+    }
+
+    parse_while_stmt(WhileStmt* w, Vec<HStmt>* out) {
+        self.current_loop_updates.push(Option<Expr>.None) // while has no explicit update to prepend before continue
+        
+        // TODO: 参考实验文档，将 while 循环降级为 loop 循环和条件判断
+        // 要求： 
+        // 1. 解析 w.condition，期待类型为 12 (Bool)
+        // 2. 构造 if !condition { break } 的 HIR 结构
+        // 3. 在 body 中依次推入上面的 if 语句和循环体语句 (注意维护符号表作用域)
+        // 4. 将最终组合出的 HStmt.Loop 放入 out 中
+
+        self.current_loop_updates.pop()
+    }
+
+    parse_for_stmt(ForStmt* f, Vec<HStmt>* out) {
+        self.current_loop_updates.push(f.update)
+
+        // TODO: 参考实验文档，将 for 循环降级为 loop 循环和条件判断
+        // 注意：
+        // 1. for 循环会开启两个作用域：一个是给初始化变量的，一个是包含循环体的作用域
+        // 2. 将 f.condition 的判断类似 while 一样处理成 if !condition { break }
+        // 3. 在 body 最末尾别忘了追加 f.update
+        // 4. for 循环的 continue 语句不会直接跳转到循环开头，而是会先执行一次 f.update 这个表达式
+
+        self.current_loop_updates.pop()
+    }
+
+    parse_match_stmt(MatchStmt* m, Vec<HStmt>* out) {
+        HExpr value = self.parse_expr(&m.value, Option<u64>.None)
+        Vec<(Pattern, Vec<HStmt>)> arms = Vec<(Pattern, Vec<HStmt>)>.new()
+        
+        for arm in m.arms {
+            self.symbol_ctx.enter_scope()
+            Vec<HStmt> arm_body = Vec<HStmt>.new()
+            for stmt in arm[1] {
+                self.parse_stmt(&stmt, &arm_body)
+            }
+            (Pattern, Vec<HStmt>) arm_tuple = (arm[0], arm_body)
+            arms.push(arm_tuple)
+            self.symbol_ctx.exit_scope()
+        }
+
+        out.push(HStmt.Match(value=value, arms=arms))
+    }
+
+    parse_break_stmt(Vec<HStmt>* out) {
+        out.push(HStmt.Break)
+    }
+
+    parse_continue_stmt(Vec<HStmt>* out) {
+        if not self.current_loop_updates.is_empty() {
+            Option<Expr> update = self.current_loop_updates.last().unwrap()
+            if update.is_some() {
+                HExpr update_expr = self.parse_expr(&update.unwrap(), Option<u64>.None)
+                out.push(HStmt.ExprStmt(expr=update_expr))
+            }
+        }
+        out.push(HStmt.Continue)
+    }
+
+    parse_return_stmt(ReturnStmt* r, Vec<HStmt>* out) {
+        // Get return type of current function
+        FunctionType func_type = self.type_ctx.get_type(self.current_func_type_id).kind.as_function()
+        u64 return_type_id = func_type.return_type_id
+
+        Option<HExpr> ret_val = Option<HExpr>.None
+        if r.value.is_some() {
+            ret_val = Option<HExpr>.Some(self.parse_expr(&r.value.unwrap(), Option<u64>.Some(return_type_id)))
+        } else {
+            // Check if return_type_id is Void (14)
+            if return_type_id != 14 {
+                panic("Return value missing in non-void function")
+            }
+        }
+        out.push(HStmt.Return(value=ret_val))
+    }
+
+    parse_var_decl_stmt(VarDeclStmt* v, Vec<HStmt>* out) {
+        u64 decl_type_id = self.resolve_ast_type(&v.info.type)
+        u64 sym_id = self.symbol_ctx.add_symbol(v.info.name.clone(), SymbolKind.Variable, decl_type_id)
+        self.current_func_locals.push(sym_id)
+        
+        if v.init.is_some() {
+            HExpr init_val = self.parse_expr(&v.init.unwrap(), Option<u64>.Some(decl_type_id))
+            HExpr* left = dyn HExpr(kind=HExprKind.Var(var_symbol_id=sym_id), is_lvalue=true, type_id=decl_type_id)
+            HExpr* right = dyn HExpr
+            *right = init_val
+
+            HExpr assign = HExpr(kind=HExprKind.Binary(left=left, op=BinaryOp.Assign, right=right), is_lvalue=false, type_id=decl_type_id)
+            out.push(HStmt.ExprStmt(expr=assign))
+        }
+    }
+    parse_expr_stmt(Expr* expr, Vec<HStmt>* out) {
+        HExpr e = self.parse_expr(expr, Option<u64>.None)
+        out.push(HStmt.ExprStmt(expr=e))
+    }
+    parse_delete_stmt(Expr* target, Vec<HStmt>* out) {
+        HExpr e = self.parse_expr(target, Option<u64>.None)
+
+        // Only allow deleting pointers
+        Type* target_type = self.type_ctx.get_type(e.type_id)
+        if not target_type.kind.is_pointer() {
+            panic("Can only delete pointer types")
+        }
+
+        out.push(HStmt.Delete(target=e))
+    }
+
+    HExpr parse_expr(Expr* expr, Option<u64> expected_type_id) {
+        HExpr res
+        match *expr {
+            Lit as _lit {
+                Literal lit = _lit.e
+                res = self.parse_expr_lit(&lit, expected_type_id)
+            }
+            Ident as _id {
+                String id = _id.e
+                res = self.parse_expr_ident(&id)
+            }
+            Call as _c {
+                CallExpr call = _c.e
+                res = self.parse_expr_call(&call)
+            }
+            FieldAccess as _f {
+                FieldAccessExpr fa = _f.e
+                res = self.parse_expr_field_access(&fa)
+            }
+            Unary as _u {
+                UnaryExpr u = _u.e
+                res = self.parse_expr_unary(&u, expected_type_id)
+            }
+            Binary as _b {
+                BinaryExpr b = _b.e
+                res = self.parse_expr_binary(&b, expected_type_id)
+            }
+            Dyn as _d {
+                DynExpr d = _d.e
+                res = self.parse_expr_dyn(&d)
+            }
+        }
+
+        if expected_type_id.is_some() and res.type_id != expected_type_id.unwrap() {
+            String expected_type = self.type_ctx.get_name(expected_type_id.unwrap())
+            String actual_type = self.type_ctx.get_name(res.type_id)
+            panic((String.from("Type mismatch in expression. Expected: ") + expected_type + ", but got: " + actual_type).as_str())
+        }
+
+        return res
+    }
+
+    HExpr parse_expr_lit(Literal* lit, Option<u64> expected_type_id) {
+        u64 type_id
+        match (*lit) {
+            Int as i { 
+                if expected_type_id.is_some() {
+                    type_id = expected_type_id.unwrap() 
+                    if type_id == 1 and i.value > 127 { panic("Literal out of range for i8") }
+                    if type_id == 2 and i.value > 32767 { panic("Literal out of range for i16") }
+                    if type_id == 3 and i.value > 2147483647 { panic("Literal out of range for i32") }
+                    // u8, u16, u32 bounds
+                    if type_id == 5 and i.value > 255 { panic("Literal out of range for u8") }
+                    if type_id == 6 and i.value > 65535 { panic("Literal out of range for u16") }
+                    if type_id == 7 and i.value > 4294967295 { panic("Literal out of range for u32") }
+
+                    if type_id > 10 {
+                        String expected_type = self.type_ctx.get_name(type_id)
+                        panic((String.from("Expected type ") + expected_type + ", but got integer literal").as_str())
+                    }
+                } else {
+                    type_id = 3 // default to I32
+                }
+            }
+            Float { 
+                if expected_type_id.is_some() {
+                    type_id = expected_type_id.unwrap()
+                    if type_id != 9 and type_id != 10 { panic("Expected float type, but got different type") }
+                } else {
+                    type_id = 10 // default to F64
+                }
+            }
+            Char { 
+                if expected_type_id.is_some() and expected_type_id.unwrap() != 11 { panic("Expected char type") }
+                type_id = 11 
+            }
+            Bool { 
+                if expected_type_id.is_some() and expected_type_id.unwrap() != 12 { panic("Expected bool type") }
+                type_id = 12 
+            }
+            Str { 
+                if expected_type_id.is_some() and expected_type_id.unwrap() != 13 { panic("Expected str type") }
+                type_id = 13 
+            }
+            Array as arr { 
+                if expected_type_id.is_none() { panic("Array literal requires an expected type context") }
+                type_id = expected_type_id.unwrap()
+
+                ArrayType arr_type = self.type_ctx.get_type(type_id).kind.as_array()
+                u64 elem_type_id = arr_type.element_type_id
+                if arr_type.length != arr.elements.len() {
+                    panic("Array literal length mismatch")
+                }
+
+                for elem in arr.elements {
+                    self.parse_expr_lit(&elem, Option<u64>.Some(elem_type_id))
+                }
+            }
+        }
+        return HExpr(kind=HExprKind.Lit(lit=(*lit)), is_lvalue=false, type_id=type_id)
+    }
+
+    HExpr parse_expr_ident(String* id) {
+        // TODO: 查出当前 id 对应的符号ID，并将它的类型提取出来
+        // 使用 symbol_ctx 的 lookup_strict 查找并获取 Symbol
+        // 最后包装并返回一个 is_lvalue=true 的 HExprKind.Var(...)
+    }
+
+    HExpr parse_expr_call(CallExpr* call) {
+        u64 sym_id = self.symbol_ctx.lookup_strict(call.callee.clone())
+        Symbol* sym = self.symbol_ctx.get_symbol(sym_id)
+        Vec<HExpr> args = Vec<HExpr>.new()
+        
+        match sym.kind {
+            Function {
+                FunctionType func_type = self.type_ctx.get_type(sym.type_id).kind.as_function()
+                u64 type_id = func_type.return_type_id
+                if func_type.params.len() != call.args.len() {
+                    panic("Argument count mismatch in function call")
+                }
+                for i in 0..call.args.len() {
+                    args.push(self.parse_expr(&call.args[i], Option<u64>.Some(func_type.params[i].type_id)))
+                }
+                HExprKind kind = HExprKind.Call(func_symbol_id=sym_id, args=args)
+                return HExpr(kind=kind, is_lvalue=false, type_id=type_id)
+            }
+            Struct {
+                StructType struct_type = self.type_ctx.get_type(sym.type_id).kind.as_struct()
+                u64 type_id = sym.type_id
+                if struct_type.fields.len() != call.args.len() {
+                    panic("Field count mismatch in struct construction")
+                }
+                for i in 0..call.args.len() {
+                    args.push(self.parse_expr(&call.args[i], Option<u64>.Some(struct_type.fields[i].type_id)))
+                }
+                HExprKind kind = HExprKind.Construct(struct_type_id=sym.type_id, field_values=args)
+                return HExpr(kind=kind, is_lvalue=false, type_id=type_id)
+            }
+            _ { panic("Callee must be a Function or Struct") }
+        }
+    }
+
+    HExpr parse_expr_field_access(FieldAccessExpr* fa) {
+        match *fa.base {
+            Ident as _id {
+                String id = _id.e
+                Option<u64> maybe_sym_id = self.symbol_ctx.lookup(id)
+                if maybe_sym_id.is_some() {
+                    Symbol* sym = self.symbol_ctx.get_symbol(maybe_sym_id.unwrap())
+                    match sym.kind {
+                        Enum {
+                            HExprKind kind = HExprKind.VariantAccess(enum_type_id=sym.type_id, variant=EnumVariant(name=fa.field.clone()))
+                            return HExpr(kind=kind, is_lvalue=false, type_id=sym.type_id)
+                        }
+                        _ {}
+                    }
+                }
+            }
+            _ {}
+        }
+
+        HExpr base_val = self.parse_expr(fa.base, Option<u64>.None)
+        
+        // Auto deref loop
+        loop {
+            // TODO: 实现自动解引用和结构体字段访问
+            // 1. 如果 base_val 的类型是指针类型，将 base_val 更新为其解引用(`Deref`)运算后的结果，随后继续 `loop` 判断内层类型
+            // 2. 如果 base_val 是结构体类型，查找 `fa.field` 这个名字是否在其中，找到了就将其打包为 `FieldAccess` HIR表达式并返回。
+            // 3. 否则，报错：panic("Field access on non-struct, non-pointer type")
+        }
+    }
+
+    HExpr parse_expr_unary(UnaryExpr* u, Option<u64> expected_type_id) {
+        match u.op {
+            Deref {
+                HExpr operand = self.parse_expr(u.operand, Option<u64>.None)
+                if not self.type_ctx.get_type(operand.type_id).kind.is_pointer() {
+                    panic("Cannot dereference non-pointer type")
+                }
+                PointerType ptr_type = self.type_ctx.get_type(operand.type_id).kind.as_pointer()
+                HExpr* _operand = dyn HExpr
+                *_operand = operand
+                HExprKind kind = HExprKind.Unary(op=UnaryOp.Deref, operand=_operand)
+                return HExpr(kind=kind, is_lvalue=true, type_id=ptr_type.pointee_type_id)
+            }
+            AddrOf {
+                HExpr operand = self.parse_expr(u.operand, Option<u64>.None)
+                if not operand.is_lvalue {
+                    panic("Cannot take address of r-value")
+                }
+                u64 operand_type_id = operand.type_id
+                u64 ptr_type_id = self.type_ctx.add_type(TypeKind.Pointer(PointerType(pointee_type_id=operand_type_id)))
+                HExpr* _operand = dyn HExpr
+                *_operand = operand
+                HExprKind kind = HExprKind.Unary(op=UnaryOp.AddrOf, operand=_operand)
+                return HExpr(kind=kind, is_lvalue=false, type_id=ptr_type_id)
+            }
+            Neg {
+                HExpr operand = self.parse_expr(u.operand, expected_type_id)
+                if not self.type_ctx.get_type(operand.type_id).kind.is_integer() and not self.type_ctx.get_type(operand.type_id).kind.is_float() {
+                    panic("Negation operator requires integer or float type")
+                }
+                HExpr* _operand = dyn HExpr
+                *_operand = operand
+                HExprKind kind = HExprKind.Unary(op=UnaryOp.Neg, operand=_operand)
+                return HExpr(kind=kind, is_lvalue=false, type_id=operand.type_id)
+            }
+            BitNot {
+                HExpr operand = self.parse_expr(u.operand, expected_type_id)
+                if not self.type_ctx.get_type(operand.type_id).kind.is_integer() {
+                    panic("Bitwise NOT operator requires integer type")
+                }
+                HExpr* _operand = dyn HExpr
+                *_operand = operand
+                HExprKind kind = HExprKind.Unary(op=UnaryOp.BitNot, operand=_operand)
+                return HExpr(kind=kind, is_lvalue=false, type_id=operand.type_id)
+            }
+            LogicNot {
+                if expected_type_id.is_some() and expected_type_id.unwrap() != 12 {
+                    panic("Expected bool type for logical NOT operator")
+                }
+
+                HExpr operand = self.parse_expr(u.operand, Option<u64>.Some(12))
+                HExpr* _operand = dyn HExpr
+                *_operand = operand
+                HExprKind kind = HExprKind.Unary(op=UnaryOp.LogicNot, operand=_operand)
+                return HExpr(kind=kind, is_lvalue=false, type_id=12)
+            }
+        }
+    }
+
+    HExpr parse_expr_binary(BinaryExpr* b, Option<u64> expected_type_id) {
+        match b.op {
+            Index {
+                HExpr left = self.parse_expr(b.left, Option<u64>.None)
+                HExpr right = self.parse_expr(b.right, Option<u64>.Some(8)) // U64 for array index
+                
+                u64 type_id = 0
+                if self.type_ctx.get_type(left.type_id).kind.is_array() {
+                    ArrayType arr_type = self.type_ctx.get_type(left.type_id).kind.as_array()
+                    type_id = arr_type.element_type_id
+                } elif self.type_ctx.get_type(left.type_id).kind.is_pointer() {
+                    PointerType ptr_type = self.type_ctx.get_type(left.type_id).kind.as_pointer()
+                    type_id = ptr_type.pointee_type_id
+                } else {
+                    panic("Cannot index into non-array, non-pointer type")
+                }
+
+                if expected_type_id.is_some() and type_id != expected_type_id.unwrap() {
+                    panic("Index expression type does not match expected type")
+                }
+
+                HExpr* _left = dyn HExpr
+                *_left = left
+                HExpr* _right = dyn HExpr
+                *_right = right               
+                HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+                return HExpr(kind=kind, is_lvalue=left.is_lvalue, type_id=type_id)
+            }
+            Assign {
+                HExpr left = self.parse_expr(b.left, Option<u64>.None)
+                if not left.is_lvalue { panic("Cannot assign to r-value") }
+                if expected_type_id.is_some() and left.type_id != expected_type_id.unwrap() {
+                    panic("Left-hand side of assignment does not match expected type")
+                }
+                
+                HExpr right = self.parse_expr(b.right, Option<u64>.Some(left.type_id))
+
+                HExpr* _left = dyn HExpr
+                *_left = left
+                HExpr* _right = dyn HExpr
+                *_right = right                
+                HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+                return HExpr(kind=kind, is_lvalue=false, type_id=left.type_id)
+            }
+            AddAssign { return self.parse_add_assign(b, expected_type_id) }
+            SubAssign { return self.parse_sub_assign(b, expected_type_id) }
+            MulAssign, DivAssign, ModAssign, BitAndAssign, BitOrAssign, BitXorAssign, ShlAssign, ShrAssign {
+                HExpr left = self.parse_expr(b.left, Option<u64>.None)
+                if not left.is_lvalue { panic("Cannot assign to r-value") }
+                if expected_type_id.is_some() and left.type_id != expected_type_id.unwrap() {
+                    panic("Left-hand side of assignment does not match expected type")
+                }
+                
+                HExpr right = self.parse_expr(b.right, Option<u64>.Some(left.type_id))
+
+                HExpr* _left = dyn HExpr
+                *_left = left
+                HExpr* _right = dyn HExpr
+                *_right = right                
+                HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+                return HExpr(kind=kind, is_lvalue=false, type_id=left.type_id)
+            }
+            LogicAnd, LogicOr {
+                if expected_type_id.is_some() and expected_type_id.unwrap() != 12 {
+                    panic("Expected bool type for logical operator")
+                }
+
+                HExpr left = self.parse_expr(b.left, Option<u64>.Some(12))
+                HExpr right = self.parse_expr(b.right, Option<u64>.Some(12))
+                
+                HExpr* _left = dyn HExpr
+                *_left = left
+                HExpr* _right = dyn HExpr
+                *_right = right
+                HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+                return HExpr(kind=kind, is_lvalue=false, type_id=12)
+            }
+            Eq, Neq, Lt, Gt, Leq, Geq { return self.parse_cmp(b, expected_type_id) }
+            Add { return self.parse_add(b, expected_type_id) }
+            Sub { return self.parse_sub(b, expected_type_id) }
+            Mul, Div {
+                HExpr left = self.parse_expr(b.left, expected_type_id)
+                HExpr right = self.parse_expr(b.right, Option<u64>.Some(left.type_id))
+                
+                TypeKind left_kind = self.type_ctx.get_type(left.type_id).kind
+                if not (left_kind.is_integer() or left_kind.is_float()) {
+                    panic("Arithmetic operators require integer or float types")
+                }
+
+                HExpr* _left = dyn HExpr
+                *_left = left
+                HExpr* _right = dyn HExpr
+                *_right = right
+                HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+                return HExpr(kind=kind, is_lvalue=false, type_id=left.type_id)
+            }
+            Mod, BitAnd, BitOr, BitXor, Shl, Shr {
+                HExpr left = self.parse_expr(b.left, expected_type_id)
+                HExpr right = self.parse_expr(b.right, Option<u64>.Some(left.type_id))
+                
+                TypeKind left_kind = self.type_ctx.get_type(left.type_id).kind
+                if not left_kind.is_integer() {
+                    panic("Bitwise operators require integer types")
+                }
+
+                HExpr* _left = dyn HExpr
+                *_left = left
+                HExpr* _right = dyn HExpr
+                *_right = right
+                HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+                return HExpr(kind=kind, is_lvalue=false, type_id=left.type_id)
+            }
+        }
+    }
+
+    HExpr parse_add(BinaryExpr* b, Option<u64> expected_type_id) {
+        HExpr left = self.parse_expr(b.left, Option<u64>.None)
+        HExpr right = self.parse_expr(b.right, Option<u64>.None)
+
+        TypeKind left_kind = self.type_ctx.get_type(left.type_id).kind
+        TypeKind right_kind = self.type_ctx.get_type(right.type_id).kind
+
+        u64 result_type_id
+
+        // TODO: 完成加法表达式的类型推导检查
+        // 1. 如果 left_kind 或 right_kind 是指针类型，则只允许 Pointer + u64 或 u64 + Pointer
+        //    如果是这种情况，你需要使用 `Option<u64>.Some(8)` 重新解析期待为 `u64` 操作数的部分，且相加结果为对应的指针类型。
+        // 2. 如果都不是指针类型，判断类型是否均为数值类型（整数或浮点）并且类型互相一致。此时应当继承两者相同的类型 ID。如果不一致或其他非法计算，应当返回 type_mismatch_error 或 panic。
+
+        if expected_type_id.is_some() and result_type_id != expected_type_id.unwrap() {
+            self.type_mismatch_error(expected_type_id.unwrap(), result_type_id)
+        }
+
+        HExpr* _left = dyn HExpr
+        *_left = left
+        HExpr* _right = dyn HExpr
+        *_right = right
+        HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+        return HExpr(kind=kind, is_lvalue=false, type_id=result_type_id)
+    }
+
+    HExpr parse_sub(BinaryExpr* b, Option<u64> expected_type_id) {
+        HExpr left = self.parse_expr(b.left, Option<u64>.None)
+        HExpr right
+        
+        TypeKind left_kind = self.type_ctx.get_type(left.type_id).kind
+
+        if left_kind.is_pointer() {
+            right = self.parse_expr(b.right, Option<u64>.None)
+            TypeKind right_kind = self.type_ctx.get_type(right.type_id).kind
+            
+            if right_kind.is_pointer() {
+                if left.type_id != right.type_id {
+                    self.type_mismatch_error(left.type_id, right.type_id)
+                }
+            } else {
+                right = self.parse_expr(b.right, Option<u64>.Some(8)) // Pointer - u64
+            }
+        } else {
+            left = self.parse_expr(b.left, expected_type_id)
+            right = self.parse_expr(b.right, expected_type_id)
+
+            left_kind = self.type_ctx.get_type(left.type_id).kind
+            if not (left_kind.is_integer() or left_kind.is_float()) {
+                panic("Arithmetic operators require integer or float types")
+            }
+
+            if left.type_id != right.type_id {
+                panic("Type mismatch in arithmetic expression")
+            }
+        }
+
+        if expected_type_id.is_some() and left.type_id != expected_type_id.unwrap() {
+            self.type_mismatch_error(expected_type_id.unwrap(), left.type_id)
+        }
+
+        HExpr* _left = dyn HExpr
+        *_left = left
+        HExpr* _right = dyn HExpr
+        *_right = right
+        HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+        return HExpr(kind=kind, is_lvalue=false, type_id=left.type_id)
+    }
+
+    HExpr parse_add_assign(BinaryExpr* b, Option<u64> expected_type_id) {
+        HExpr left = self.parse_expr(b.left, Option<u64>.None)
+        if not left.is_lvalue { panic("Cannot assign to r-value") }
+        if expected_type_id.is_some() and left.type_id != expected_type_id.unwrap() {
+            panic("Left-hand side of assignment does not match expected type")
+        }
+        
+        TypeKind left_kind = self.type_ctx.get_type(left.type_id).kind
+        
+        HExpr right
+        if left_kind.is_pointer() {
+            right = self.parse_expr(b.right, Option<u64>.Some(8)) // Pointer += u64
+        } else {
+            right = self.parse_expr(b.right, Option<u64>.Some(left.type_id))
+        }
+
+        HExpr* _left = dyn HExpr
+        *_left = left
+        HExpr* _right = dyn HExpr
+        *_right = right                
+        HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+        return HExpr(kind=kind, is_lvalue=false, type_id=left.type_id)
+    }
+
+    HExpr parse_sub_assign(BinaryExpr* b, Option<u64> expected_type_id) {
+        HExpr left = self.parse_expr(b.left, Option<u64>.None)
+        if not left.is_lvalue { panic("Cannot assign to r-value") }
+        if expected_type_id.is_some() and left.type_id != expected_type_id.unwrap() {
+            panic("Left-hand side of assignment does not match expected type")
+        }
+        
+        TypeKind left_kind = self.type_ctx.get_type(left.type_id).kind
+        
+        HExpr right
+        if left_kind.is_pointer() {
+            right = self.parse_expr(b.right, Option<u64>.Some(8)) // Pointer -= u64
+        } else {
+            right = self.parse_expr(b.right, Option<u64>.Some(left.type_id))
+        }
+
+        HExpr* _left = dyn HExpr
+        *_left = left
+        HExpr* _right = dyn HExpr
+        *_right = right                
+        HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+        return HExpr(kind=kind, is_lvalue=false, type_id=left.type_id)
+    }
+
+    HExpr parse_cmp(BinaryExpr* b, Option<u64> expected_type_id) {
+        if expected_type_id.is_some() and expected_type_id.unwrap() != 12 {
+            panic("Expected bool type for comparison operator")
+        }
+
+        HExpr left = self.parse_expr(b.left, Option<u64>.None)
+        HExpr right = self.parse_expr(b.right, Option<u64>.Some(left.type_id))
+
+        TypeKind left_kind = self.type_ctx.get_type(left.type_id).kind
+        if not (left_kind.is_integer() or left_kind.is_float() or left_kind.is_char() or left_kind.is_pointer()) {
+            panic("Comparison operators require integer, float, char, or pointer types")
+        }
+
+        HExpr* _left = dyn HExpr
+        *_left = left
+        HExpr* _right = dyn HExpr
+        *_right = right
+        HExprKind kind = HExprKind.Binary(left=_left, right=_right, op=b.op)
+        return HExpr(kind=kind, is_lvalue=false, type_id=12)
+    }
+
+    HExpr parse_expr_dyn(DynExpr* d) {
+        u64 inner_type_id = self.resolve_ast_type(&d.type)
+        u64 ptr_type_id = self.type_ctx.add_type(TypeKind.Pointer(PointerType(pointee_type_id=inner_type_id)))
+
+        Option<HExpr*> array_size = Option<HExpr*>.None
+        if d.array_size.is_some() {
+            HExpr size_expr = self.parse_expr(d.array_size.unwrap(), Option<u64>.Some(8))
+            HExpr* _size_expr = dyn HExpr
+            *_size_expr = size_expr
+            array_size = Option<HExpr*>.Some(_size_expr)
+        }
+
+        return HExpr(kind=HExprKind.Dyn(array_size=array_size), is_lvalue=false, type_id=ptr_type_id)
+    }
+
+    pub HIRProgram export() {
+        return HIRProgram(
+            program=HProgram(self.funcs),
+            type_ctx=self.type_ctx,
+            symbol_ctx=self.symbol_ctx
+        )
+    }
+}
