@@ -280,4 +280,64 @@ impl TypeCtx {
         }
         panic((String.from("Type ID not found: ") + id.to_string()).as_str())
     }
+
+    pub String get_name(u64 id) {
+        String name = String.new()
+        Type* t = self.get_type(id)
+        match t.kind {
+            Char { name += "char" }
+            Bool { name += "bool" }
+            Str { name += "str" }
+            Void { name += "void" }
+            Int as _i {
+                if _i.i.is_signed { name += "i" } else { name += "u" }
+                u64 bits = _i.i.size * 8
+                name += bits.to_string()
+            }
+            Float as _f {
+                name += "f"
+                u64 bits = _f.f.size * 8
+                name += bits.to_string()
+            }
+            Array as _a {
+                name += self.get_name(_a.a.element_type_id)
+                name += "["
+                name += _a.a.length.to_string()
+                name += "]"
+            }
+            Pointer as _p {
+                name += self.get_name(_p.p.pointee_type_id)
+                name += "*"
+            }
+            Struct as _s {
+                name += "struct "
+                name += _s.s.name
+            }
+            Enum as _e {
+                name += "enum "
+                name += _e.e.name
+            }
+            Function as _f {
+                name += "fn "
+                name += _f.f.name
+                name += "("
+                for i in 0.._f.f.params.len() {
+                    if i > 0 { name += ", " }
+                    name += self.get_name(_f.f.params[i].type_id)
+                }
+                name += ") -> "
+                name += self.get_name(_f.f.return_type_id)
+            }
+        }
+        return name
+    }
+
+    pub String export() {
+        String result = String.new()
+        for id in self.types {
+            Type* t = &self.types[id]
+            result += id.to_string() + ": " + self.get_name(id) + "\n"
+        }
+        return result
+    }
 }

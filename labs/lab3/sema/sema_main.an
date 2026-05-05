@@ -9,12 +9,16 @@ from parser import Parser
 from ast import Program
 
 from sema import Sema, HIRProgram
-from hir import HProgram
 
-write_sema_output(str output_path, HProgram* hir_program) {
+write_sema_output(str output_path, HIRProgram* hir_program) {
     String out = String.new()
     out += "=== Semantic Analysis Output ===\n"
-    out += hir_program.export()
+    out += "=== HIR Program ===\n"
+    out += hir_program.program.export()
+    out += "=== Type Context ===\n"
+    out += hir_program.type_ctx.export()
+    out += "=== Symbol Context ===\n"
+    out += hir_program.symbol_ctx.export()
     write_file(output_path, out.as_str())
 }
 
@@ -50,7 +54,7 @@ i32 main() {
         Sema sema = Sema.new(program)
         sema.analyze()
         HIRProgram hir_program = sema.export()
-        write_sema_output(output_path, &hir_program.program)
+        write_sema_output(output_path, &hir_program)
 
         print("Semantic Analysis done. Output written to: ")
         print(output_path)
