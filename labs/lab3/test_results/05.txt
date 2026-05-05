@@ -1,0 +1,222 @@
+=== Semantic Analysis Output ===
+=== HIR Program ===
+HProgram
+├── HFuncDef: type_id = 101
+│   ├── LocalVars: 3
+│   └── Match:
+│       ├── Value:
+│       │   └── HExpr: type_id = 100, lvalue = true
+│       │       └── Var: var_symbol_id = 3
+│       └── Arms:
+│           ├── Arm: A
+│           │   └── Return:
+│           │       └── Value:
+│           │           └── HExpr: type_id = 3, lvalue = false
+│           │               └── Literal: 4
+│           ├── Arm: B
+│           │   └── Return:
+│           │       └── Value:
+│           │           └── HExpr: type_id = 3, lvalue = false
+│           │               └── Literal: 3
+│           ├── Arm: C
+│           │   └── Return:
+│           │       └── Value:
+│           │           └── HExpr: type_id = 3, lvalue = false
+│           │               └── Literal: 2
+│           └── Arm: F
+│               └── Return:
+│                   └── Value:
+│                       └── HExpr: type_id = 3, lvalue = false
+│                           └── Literal: 0
+└── HFuncDef: type_id = 102
+    ├── LocalVars: 4, 5, 6, 7, 8, 9, 10, 11
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 4
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 0
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 5
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 0
+    ├── Loop:
+    │   └── Body:
+    │       ├── If:
+    │       │   ├── Condition:
+    │       │   │   └── HExpr: type_id = 12, lvalue = false
+    │       │   │       └── BinaryOp: >=
+    │       │   │           ├── HExpr: type_id = 3, lvalue = true
+    │       │   │           │   └── Var: var_symbol_id = 4
+    │       │   │           └── HExpr: type_id = 3, lvalue = false
+    │       │   │               └── Literal: 10
+    │       │   ├── Then:
+    │       │   │   └── Break
+    │       │   └── Else:
+    │       │       └── ExprStmt:
+    │       │           └── HExpr: type_id = 3, lvalue = false
+    │       │               └── BinaryOp: +=
+    │       │                   ├── HExpr: type_id = 3, lvalue = true
+    │       │                   │   └── Var: var_symbol_id = 4
+    │       │                   └── HExpr: type_id = 3, lvalue = false
+    │       │                       └── Literal: 1
+    │       ├── If:
+    │       │   ├── Condition:
+    │       │   │   └── HExpr: type_id = 12, lvalue = false
+    │       │   │       └── BinaryOp: ==
+    │       │   │           ├── HExpr: type_id = 3, lvalue = false
+    │       │   │           │   └── BinaryOp: %
+    │       │   │           │       ├── HExpr: type_id = 3, lvalue = true
+    │       │   │           │       │   └── Var: var_symbol_id = 4
+    │       │   │           │       └── HExpr: type_id = 3, lvalue = false
+    │       │   │           │           └── Literal: 2
+    │       │   │           └── HExpr: type_id = 3, lvalue = false
+    │       │   │               └── Literal: 0
+    │       │   └── Then:
+    │       │       └── Continue
+    │       └── ExprStmt:
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── BinaryOp: +=
+    │                   ├── HExpr: type_id = 3, lvalue = true
+    │                   │   └── Var: var_symbol_id = 5
+    │                   └── HExpr: type_id = 3, lvalue = true
+    │                       └── Var: var_symbol_id = 4
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 6
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 1
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 7
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 0
+    ├── Loop:
+    │   └── Body:
+    │       ├── If:
+    │       │   ├── Condition:
+    │       │   │   └── HExpr: type_id = 12, lvalue = false
+    │       │   │       └── UnaryOp: not
+    │       │   │           └── HExpr: type_id = 12, lvalue = false
+    │       │   │               └── BinaryOp: <=
+    │       │   │                   ├── HExpr: type_id = 3, lvalue = true
+    │       │   │                   │   └── Var: var_symbol_id = 6
+    │       │   │                   └── HExpr: type_id = 3, lvalue = false
+    │       │   │                       └── Literal: 5
+    │       │   └── Then:
+    │       │       └── Break
+    │       ├── ExprStmt:
+    │       │   └── HExpr: type_id = 3, lvalue = false
+    │       │       └── BinaryOp: +=
+    │       │           ├── HExpr: type_id = 3, lvalue = true
+    │       │           │   └── Var: var_symbol_id = 7
+    │       │           └── HExpr: type_id = 3, lvalue = true
+    │       │               └── Var: var_symbol_id = 6
+    │       └── ExprStmt:
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── BinaryOp: +=
+    │                   ├── HExpr: type_id = 3, lvalue = true
+    │                   │   └── Var: var_symbol_id = 6
+    │                   └── HExpr: type_id = 3, lvalue = false
+    │                       └── Literal: 1
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 8
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 0
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 9
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 1
+    ├── Loop:
+    │   └── Body:
+    │       ├── If:
+    │       │   ├── Condition:
+    │       │   │   └── HExpr: type_id = 12, lvalue = false
+    │       │   │       └── UnaryOp: not
+    │       │   │           └── HExpr: type_id = 12, lvalue = false
+    │       │   │               └── BinaryOp: <=
+    │       │   │                   ├── HExpr: type_id = 3, lvalue = true
+    │       │   │                   │   └── Var: var_symbol_id = 9
+    │       │   │                   └── HExpr: type_id = 3, lvalue = false
+    │       │   │                       └── Literal: 5
+    │       │   └── Then:
+    │       │       └── Break
+    │       ├── ExprStmt:
+    │       │   └── HExpr: type_id = 3, lvalue = false
+    │       │       └── BinaryOp: +=
+    │       │           ├── HExpr: type_id = 3, lvalue = true
+    │       │           │   └── Var: var_symbol_id = 8
+    │       │           └── HExpr: type_id = 3, lvalue = true
+    │       │               └── Var: var_symbol_id = 9
+    │       └── ExprStmt:
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── BinaryOp: +=
+    │                   ├── HExpr: type_id = 3, lvalue = true
+    │                   │   └── Var: var_symbol_id = 9
+    │                   └── HExpr: type_id = 3, lvalue = false
+    │                       └── Literal: 1
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 100, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 100, lvalue = true
+    │           │   └── Var: var_symbol_id = 10
+    │           └── HExpr: type_id = 100, lvalue = false
+    │               └── VariantAccess: enum_type_id = 100, orig_name = B
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 11
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Call: func_symbol_id = 1
+    │                   └── HExpr: type_id = 100, lvalue = true
+    │                       └── Var: var_symbol_id = 10
+    └── Return:
+        └── Value:
+            └── HExpr: type_id = 3, lvalue = false
+                └── Literal: 0
+=== Type Context ===
+1: i8
+2: i16
+3: i32
+4: i64
+5: u8
+6: u16
+7: u32
+8: u64
+9: f32
+10: f64
+11: char
+12: bool
+13: str
+14: void
+100: enum Grade
+101: fn score(enum Grade) -> i32
+102: fn main() -> i32
+=== Symbol Context ===
+0: Grade - Enum : type_id=100
+1: score - Function : type_id=101
+2: main - Function : type_id=102
+3: g - Variable : type_id=100
+4: n - Variable : type_id=3
+5: sum_odd - Variable : type_id=3
+6: k - Variable : type_id=3
+7: sum_all - Variable : type_id=3
+8: sum_for - Variable : type_id=3
+9: i - Variable : type_id=3
+10: g - Variable : type_id=100
+11: s - Variable : type_id=3

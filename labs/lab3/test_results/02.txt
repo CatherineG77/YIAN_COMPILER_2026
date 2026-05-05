@@ -1,0 +1,106 @@
+=== Semantic Analysis Output ===
+=== HIR Program ===
+HProgram
+├── HFuncDef: type_id = 100
+│   ├── LocalVars: 3
+│   ├── If:
+│   │   ├── Condition:
+│   │   │   └── HExpr: type_id = 12, lvalue = false
+│   │   │       └── BinaryOp: <=
+│   │   │           ├── HExpr: type_id = 3, lvalue = true
+│   │   │           │   └── Var: var_symbol_id = 3
+│   │   │           └── HExpr: type_id = 3, lvalue = false
+│   │   │               └── Literal: 1
+│   │   └── Then:
+│   │       └── Return:
+│   │           └── Value:
+│   │               └── HExpr: type_id = 3, lvalue = false
+│   │                   └── Literal: 1
+│   └── Return:
+│       └── Value:
+│           └── HExpr: type_id = 3, lvalue = false
+│               └── BinaryOp: *
+│                   ├── HExpr: type_id = 3, lvalue = true
+│                   │   └── Var: var_symbol_id = 3
+│                   └── HExpr: type_id = 3, lvalue = false
+│                       └── Call: func_symbol_id = 0
+│                           └── HExpr: type_id = 3, lvalue = false
+│                               └── BinaryOp: -
+│                                   ├── HExpr: type_id = 3, lvalue = true
+│                                   │   └── Var: var_symbol_id = 3
+│                                   └── HExpr: type_id = 3, lvalue = false
+│                                       └── Literal: 1
+├── HFuncDef: type_id = 101
+│   ├── LocalVars: 4
+│   └── Return:
+│       └── Value:
+│           └── HExpr: type_id = 12, lvalue = false
+│               └── BinaryOp: ==
+│                   ├── HExpr: type_id = 3, lvalue = false
+│                   │   └── BinaryOp: %
+│                   │       ├── HExpr: type_id = 3, lvalue = true
+│                   │       │   └── Var: var_symbol_id = 4
+│                   │       └── HExpr: type_id = 3, lvalue = false
+│                   │           └── Literal: 2
+│                   └── HExpr: type_id = 3, lvalue = false
+│                       └── Literal: 1
+└── HFuncDef: type_id = 102
+    ├── LocalVars: 5, 6, 7
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 5
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Call: func_symbol_id = 0
+    │                   └── HExpr: type_id = 3, lvalue = false
+    │                       └── Literal: 6
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 12, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 12, lvalue = true
+    │           │   └── Var: var_symbol_id = 6
+    │           └── HExpr: type_id = 12, lvalue = false
+    │               └── Call: func_symbol_id = 1
+    │                   └── HExpr: type_id = 3, lvalue = false
+    │                       └── Literal: 9
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 12, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 12, lvalue = true
+    │           │   └── Var: var_symbol_id = 7
+    │           └── HExpr: type_id = 12, lvalue = false
+    │               └── Call: func_symbol_id = 1
+    │                   └── HExpr: type_id = 3, lvalue = false
+    │                       └── Literal: 8
+    └── Return:
+        └── Value:
+            └── HExpr: type_id = 3, lvalue = false
+                └── Literal: 0
+=== Type Context ===
+1: i8
+2: i16
+3: i32
+4: i64
+5: u8
+6: u16
+7: u32
+8: u64
+9: f32
+10: f64
+11: char
+12: bool
+13: str
+14: void
+100: fn factorial(i32) -> i32
+101: fn is_odd(i32) -> bool
+102: fn main() -> i32
+=== Symbol Context ===
+0: factorial - Function : type_id=100
+1: is_odd - Function : type_id=101
+2: main - Function : type_id=102
+3: n - Variable : type_id=3
+4: n - Variable : type_id=3
+5: f - Variable : type_id=3
+6: odd - Variable : type_id=12
+7: even - Variable : type_id=12

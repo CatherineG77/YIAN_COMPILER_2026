@@ -1,0 +1,282 @@
+=== Semantic Analysis Output ===
+=== HIR Program ===
+HProgram
+└── HFuncDef: type_id = 100
+    ├── LocalVars: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 101, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 101, lvalue = true
+    │           │   └── Var: var_symbol_id = 1
+    │           └── HExpr: type_id = 101, lvalue = false
+    │               └── Literal: [1, 2, 3, 4, 5, 6]
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 2
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── BinaryOp: +
+    │                   ├── HExpr: type_id = 3, lvalue = true
+    │                   │   └── BinaryOp: []
+    │                   │       ├── HExpr: type_id = 101, lvalue = true
+    │                   │       │   └── Var: var_symbol_id = 1
+    │                   │       └── HExpr: type_id = 8, lvalue = false
+    │                   │           └── Literal: 0
+    │                   └── HExpr: type_id = 3, lvalue = true
+    │                       └── BinaryOp: []
+    │                           ├── HExpr: type_id = 101, lvalue = true
+    │                           │   └── Var: var_symbol_id = 1
+    │                           └── HExpr: type_id = 8, lvalue = false
+    │                               └── Literal: 5
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 8, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 8, lvalue = true
+    │           │   └── Var: var_symbol_id = 3
+    │           └── HExpr: type_id = 8, lvalue = false
+    │               └── Literal: 1
+    ├── Loop:
+    │   └── Body:
+    │       ├── If:
+    │       │   ├── Condition:
+    │       │   │   └── HExpr: type_id = 12, lvalue = false
+    │       │   │       └── UnaryOp: not
+    │       │   │           └── HExpr: type_id = 12, lvalue = false
+    │       │   │               └── BinaryOp: <
+    │       │   │                   ├── HExpr: type_id = 8, lvalue = true
+    │       │   │                   │   └── Var: var_symbol_id = 3
+    │       │   │                   └── HExpr: type_id = 8, lvalue = false
+    │       │   │                       └── Literal: 5
+    │       │   └── Then:
+    │       │       └── Break
+    │       ├── ExprStmt:
+    │       │   └── HExpr: type_id = 3, lvalue = false
+    │       │       └── BinaryOp: +=
+    │       │           ├── HExpr: type_id = 3, lvalue = true
+    │       │           │   └── Var: var_symbol_id = 2
+    │       │           └── HExpr: type_id = 3, lvalue = true
+    │       │               └── BinaryOp: []
+    │       │                   ├── HExpr: type_id = 101, lvalue = true
+    │       │                   │   └── Var: var_symbol_id = 1
+    │       │                   └── HExpr: type_id = 8, lvalue = true
+    │       │                       └── Var: var_symbol_id = 3
+    │       └── ExprStmt:
+    │           └── HExpr: type_id = 8, lvalue = false
+    │               └── BinaryOp: +=
+    │                   ├── HExpr: type_id = 8, lvalue = true
+    │                   │   └── Var: var_symbol_id = 3
+    │                   └── HExpr: type_id = 8, lvalue = false
+    │                       └── Literal: 1
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 4
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 42
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 102, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 102, lvalue = true
+    │           │   └── Var: var_symbol_id = 5
+    │           └── HExpr: type_id = 102, lvalue = false
+    │               └── UnaryOp: &
+    │                   └── HExpr: type_id = 3, lvalue = true
+    │                       └── Var: var_symbol_id = 4
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 6
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── BinaryOp: +
+    │                   ├── HExpr: type_id = 3, lvalue = true
+    │                   │   └── UnaryOp: *
+    │                   │       └── HExpr: type_id = 102, lvalue = true
+    │                   │           └── Var: var_symbol_id = 5
+    │                   └── HExpr: type_id = 3, lvalue = false
+    │                       └── Literal: 1
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: +=
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── UnaryOp: *
+    │           │       └── HExpr: type_id = 102, lvalue = true
+    │           │           └── Var: var_symbol_id = 5
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 1
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 102, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 102, lvalue = true
+    │           │   └── Var: var_symbol_id = 7
+    │           └── HExpr: type_id = 102, lvalue = false
+    │               └── UnaryOp: &
+    │                   └── HExpr: type_id = 3, lvalue = true
+    │                       └── BinaryOp: []
+    │                           ├── HExpr: type_id = 101, lvalue = true
+    │                           │   └── Var: var_symbol_id = 1
+    │                           └── HExpr: type_id = 8, lvalue = false
+    │                               └── Literal: 0
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 102, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 102, lvalue = true
+    │           │   └── Var: var_symbol_id = 8
+    │           └── HExpr: type_id = 102, lvalue = false
+    │               └── BinaryOp: +
+    │                   ├── HExpr: type_id = 102, lvalue = false
+    │                   │   └── UnaryOp: &
+    │                   │       └── HExpr: type_id = 3, lvalue = true
+    │                   │           └── BinaryOp: []
+    │                   │               ├── HExpr: type_id = 101, lvalue = true
+    │                   │               │   └── Var: var_symbol_id = 1
+    │                   │               └── HExpr: type_id = 8, lvalue = false
+    │                   │                   └── Literal: 5
+    │                   └── HExpr: type_id = 8, lvalue = false
+    │                       └── Literal: 1
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 9
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 0
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 102, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 102, lvalue = true
+    │           │   └── Var: var_symbol_id = 10
+    │           └── HExpr: type_id = 102, lvalue = true
+    │               └── Var: var_symbol_id = 7
+    ├── Loop:
+    │   └── Body:
+    │       ├── If:
+    │       │   ├── Condition:
+    │       │   │   └── HExpr: type_id = 12, lvalue = false
+    │       │   │       └── UnaryOp: not
+    │       │   │           └── HExpr: type_id = 12, lvalue = false
+    │       │   │               └── BinaryOp: <
+    │       │   │                   ├── HExpr: type_id = 102, lvalue = true
+    │       │   │                   │   └── Var: var_symbol_id = 10
+    │       │   │                   └── HExpr: type_id = 102, lvalue = true
+    │       │   │                       └── Var: var_symbol_id = 8
+    │       │   └── Then:
+    │       │       └── Break
+    │       ├── ExprStmt:
+    │       │   └── HExpr: type_id = 3, lvalue = false
+    │       │       └── BinaryOp: +=
+    │       │           ├── HExpr: type_id = 3, lvalue = true
+    │       │           │   └── Var: var_symbol_id = 9
+    │       │           └── HExpr: type_id = 3, lvalue = true
+    │       │               └── UnaryOp: *
+    │       │                   └── HExpr: type_id = 102, lvalue = true
+    │       │                       └── Var: var_symbol_id = 10
+    │       └── ExprStmt:
+    │           └── HExpr: type_id = 102, lvalue = false
+    │               └── BinaryOp: +=
+    │                   ├── HExpr: type_id = 102, lvalue = true
+    │                   │   └── Var: var_symbol_id = 10
+    │                   └── HExpr: type_id = 8, lvalue = false
+    │                       └── Literal: 1
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 102, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 102, lvalue = true
+    │           │   └── Var: var_symbol_id = 11
+    │           └── HExpr: type_id = 102, lvalue = false
+    │               └── Dyn
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 102, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 102, lvalue = true
+    │           │   └── Var: var_symbol_id = 12
+    │           └── HExpr: type_id = 102, lvalue = false
+    │               └── Dyn
+    │                   └── HExpr: type_id = 8, lvalue = false
+    │                       └── Literal: 3
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── UnaryOp: *
+    │           │       └── HExpr: type_id = 102, lvalue = true
+    │           │           └── Var: var_symbol_id = 11
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 100
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── BinaryOp: []
+    │           │       ├── HExpr: type_id = 102, lvalue = true
+    │           │       │   └── Var: var_symbol_id = 12
+    │           │       └── HExpr: type_id = 8, lvalue = false
+    │           │           └── Literal: 0
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 10
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── BinaryOp: []
+    │           │       ├── HExpr: type_id = 102, lvalue = true
+    │           │       │   └── Var: var_symbol_id = 12
+    │           │       └── HExpr: type_id = 8, lvalue = false
+    │           │           └── Literal: 1
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 20
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── BinaryOp: []
+    │           │       ├── HExpr: type_id = 102, lvalue = true
+    │           │       │   └── Var: var_symbol_id = 12
+    │           │       └── HExpr: type_id = 8, lvalue = false
+    │           │           └── Literal: 2
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Literal: 30
+    ├── Delete:
+    │   └── HExpr: type_id = 102, lvalue = true
+    │       └── Var: var_symbol_id = 11
+    ├── Delete:
+    │   └── HExpr: type_id = 102, lvalue = true
+    │       └── Var: var_symbol_id = 12
+    └── Return:
+        └── Value:
+            └── HExpr: type_id = 3, lvalue = false
+                └── Literal: 0
+=== Type Context ===
+1: i8
+2: i16
+3: i32
+4: i64
+5: u8
+6: u16
+7: u32
+8: u64
+9: f32
+10: f64
+11: char
+12: bool
+13: str
+14: void
+100: fn main() -> i32
+101: i32[6]
+102: i32*
+=== Symbol Context ===
+0: main - Function : type_id=100
+1: arr - Variable : type_id=101
+2: s1 - Variable : type_id=3
+3: i - Variable : type_id=8
+4: var - Variable : type_id=3
+5: p - Variable : type_id=102
+6: s2 - Variable : type_id=3
+7: begin - Variable : type_id=102
+8: end - Variable : type_id=102
+9: s3 - Variable : type_id=3
+10: p - Variable : type_id=102
+11: heap_obj1 - Variable : type_id=102
+12: heap_obj2 - Variable : type_id=102

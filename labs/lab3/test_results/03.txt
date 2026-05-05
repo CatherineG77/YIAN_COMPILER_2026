@@ -1,0 +1,68 @@
+=== Semantic Analysis Output ===
+=== HIR Program ===
+HProgram
+├── HFuncDef: type_id = 101
+│   ├── LocalVars: 3
+│   └── Return:
+│       └── Value:
+│           └── HExpr: type_id = 3, lvalue = false
+│               └── BinaryOp: *
+│                   ├── HExpr: type_id = 3, lvalue = true
+│                   │   └── FieldAccess: type_id = 3, orig_name = w
+│                   │       └── HExpr: type_id = 100, lvalue = true
+│                   │           └── Var: var_symbol_id = 3
+│                   └── HExpr: type_id = 3, lvalue = true
+│                       └── FieldAccess: type_id = 3, orig_name = h
+│                           └── HExpr: type_id = 100, lvalue = true
+│                               └── Var: var_symbol_id = 3
+└── HFuncDef: type_id = 102
+    ├── LocalVars: 4, 5
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 100, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 100, lvalue = true
+    │           │   └── Var: var_symbol_id = 4
+    │           └── HExpr: type_id = 100, lvalue = false
+    │               └── Construct: struct_type_id = 100
+    │                   ├── HExpr: type_id = 3, lvalue = false
+    │                   │   └── Literal: 3
+    │                   └── HExpr: type_id = 3, lvalue = false
+    │                       └── Literal: 7
+    ├── ExprStmt:
+    │   └── HExpr: type_id = 3, lvalue = false
+    │       └── BinaryOp: =
+    │           ├── HExpr: type_id = 3, lvalue = true
+    │           │   └── Var: var_symbol_id = 5
+    │           └── HExpr: type_id = 3, lvalue = false
+    │               └── Call: func_symbol_id = 1
+    │                   └── HExpr: type_id = 100, lvalue = true
+    │                       └── Var: var_symbol_id = 4
+    └── Return:
+        └── Value:
+            └── HExpr: type_id = 3, lvalue = false
+                └── Literal: 0
+=== Type Context ===
+1: i8
+2: i16
+3: i32
+4: i64
+5: u8
+6: u16
+7: u32
+8: u64
+9: f32
+10: f64
+11: char
+12: bool
+13: str
+14: void
+100: struct Box2D
+101: fn area(struct Box2D) -> i32
+102: fn main() -> i32
+=== Symbol Context ===
+0: Box2D - Struct : type_id=100
+1: area - Function : type_id=101
+2: main - Function : type_id=102
+3: b - Variable : type_id=100
+4: b - Variable : type_id=100
+5: a - Variable : type_id=3
