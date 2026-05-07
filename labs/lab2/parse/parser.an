@@ -238,20 +238,27 @@ impl Parser {
     EnumDef parse_enum_def() {
         // consume 'enum'
         // TODO: 参考 parse_struct_def
+        self.consume_keyword(Keyword.Enum)
 
         // parse enum name
         // TODO: 参考 parse_struct_def
+        String name = self.parse_ident()
 
         // consume '{'
         // TODO: 参考 parse_struct_def
+        self.consume_keyword(Keyword.LBrace)
 
         Vec<String> variants = Vec<String>.new()
 
         // parse variants
         // TODO: 参考 parse_struct_def，注意 enum 的每个 variant 只有名字没有类型
+        while not self.peek().is_keyword(Keyword.RBrace) {
+            variants.push(self.parse_ident())
+        }
 
         // consume '}'
         // TODO: 参考 parse_struct_def
+        self.consume_keyword(Keyword.RBrace)
 
         return EnumDef(name, variants)
     }
@@ -331,16 +338,22 @@ impl Parser {
 
         // parse variable name
         // TODO: name 变量用于存储变量名
+        String name = self.parse_ident()
 
         // consume ':'
         self.consume_keyword(Keyword.Colon)
 
         // parse variable type
         // TODO:: type 变量用于存储变量类型
+        ASTType type = self.parse_type()
 
         Option<Expr> init = Option<Expr>.None
 
         // TODO: 如果有 '=', 解析初始化表达式并更新 init 变量
+        if self.peek().is_keyword(Keyword.Assign) {
+            self.consume_keyword(Keyword.Assign)
+            init = Option<Expr>.Some(self.parse_expr())
+        }
 
         // consume ';'
         self.consume_keyword(Keyword.Semicolon)
@@ -420,6 +433,11 @@ impl Parser {
         Option<Expr> update = Option<Expr>.None
 
         // TODO: 如果下一个 token 不是 ';'，解析初始化语句并更新 init 变量, 注意 parse_stmt() 会消费 ';'
+        if not self.peek().is_keyword(Keyword.Semicolon) {
+            Stmt* init_stmt = dyn Stmt
+            *init_stmt = self.parse_stmt()
+            init = Option<Stmt*>.Some(init_stmt)
+        }
 
         if not self.peek().is_keyword(Keyword.Semicolon) {
             condition = Option<Expr>.Some(self.parse_expr())
@@ -429,8 +447,12 @@ impl Parser {
         self.consume_keyword(Keyword.Semicolon)
 
         // TODO: 如果下一个 token 不是 '{'，解析更新表达式并更新 update 变量
+        if not self.peek().is_keyword(Keyword.LBrace) {
+            update = Option<Expr>.Some(self.parse_expr())
+        }
 
         // TODO: 解析循环体, 存储在 body 变量中
+        Vec<Stmt> body = self.parse_braced_stmt_block()
 
         return Stmt.For(init, condition, update, body)
     }
@@ -533,6 +555,25 @@ impl Parser {
             match token.data {
                 Kw as t {
                     // TODO: 参看算法思路, 此空为本次实验最难的部分
+                    match BinaryOp.from_keyword(t.kw) {
+                        Some as info {
+                            if info.val.left_bp < min_bp {
+                                break
+                            }
+
+                            self.next()
+                            Expr right = self.parse_expr_bp(info.val.right_bp)
+
+                            Expr* left_ptr = dyn Expr
+                            *left_ptr = left
+                            Expr* right_ptr = dyn Expr
+                            *right_ptr = right
+
+                            left = Expr.Binary(left_ptr, info.val.op, right_ptr)
+                        }
+                        None { break }
+                    }
+
                 }
                 _ { break }
             }
@@ -567,6 +608,65 @@ impl Parser {
             Kw as t {
                 match t.kw {
                     // TODO: 参看算法思路，需要处理的情况: Minus, Star, Ampersand, Tilde, Not, Dyn, True, False
+                    Minus {
+                        self.next()
+                        Expr operand = self.parse_expr_bp(12)
+                        Expr* operand_ptr = dyn Expr
+                        *operand_ptr = operand
+                        return Expr.Unary(UnaryOp.Neg, operand_ptr)
+                    }
+                    Star {
+                        self.next()
+                        Expr operand = self.parse_expr_bp(12)
+                        Expr* operand_ptr = dyn Expr
+                        *operand_ptr = operand
+                        return Expr.Unary(UnaryOp.Deref, operand_ptr)
+                    }
+                    Ampersand {
+                        self.next()
+                        Expr operand = self.parse_expr_bp(12)
+                        Expr* operand_ptr = dyn Expr
+                        *operand_ptr = operand
+                        return Expr.Unary(UnaryOp.AddrOf, operand_ptr)
+                    }
+                    Tilde {
+                        self.next()
+                        Expr operand = self.parse_expr_bp(12)
+                        Expr* operand_ptr = dyn Expr
+                        *operand_ptr = operand
+                        return Expr.Unary(UnaryOp.BitNot, operand_ptr)
+                    }
+                    Not {
+                        self.next()
+                        Expr operand = self.parse_expr_bp(12)
+                        Expr* operand_ptr = dyn Expr
+                        *operand_ptr = operand
+                        return Expr.Unary(UnaryOp.LogicNot, operand_ptr)
+                    }
+                    Dyn {
+                        self.next()
+                        ASTType type = self.parse_base_type()
+                        Option<Expr*> array_size = Option<Expr*>.None
+
+                        if self.peek().is_keyword(Keyword.LBracket) {
+                            self.consume_keyword(Keyword.LBracket)
+                            Expr size = self.parse_expr()
+                            Expr* size_ptr = dyn Expr
+                            *size_ptr = size
+                            array_size = Option<Expr*>.Some(size_ptr)
+                            self.consume_keyword(Keyword.RBracket)
+                        }
+
+                        return Expr.Dyn(type, array_size)
+                    }
+                    True {
+                        self.next()
+                        return Expr.Lit(Literal.Bool(true))
+                    }
+                    False {
+                        self.next()
+                        return Expr.Lit(Literal.Bool(false))
+                    }
                     _ {}
                 }
             }
@@ -600,6 +700,30 @@ impl Parser {
             Kw as t {
                 match t.kw {
                     // TODO: 参看算法思路，需要处理的情况: LParen, LBracket
+                    LParen {
+                        Expr expr = self.parse_expr()
+                        self.consume_keyword(Keyword.RParen)
+                        return expr
+                    }
+                    LBracket {
+                        Vec<Literal> elements = Vec<Literal>.new()
+
+                        if not self.peek().is_keyword(Keyword.RBracket) {
+                            loop {
+                                elements.push(self.parse_literal_value())
+                                if self.peek().is_keyword(Keyword.Comma) {
+                                    self.consume_keyword(Keyword.Comma)
+                                } 
+                                else {
+                                    break
+                                }
+                            }
+                        }
+
+                        self.consume_keyword(Keyword.RBracket)
+                        return Expr.Lit(Literal.Array(elements))
+                    }
+
                     _ { self.error(token) }
                 }
             }
@@ -648,6 +772,52 @@ impl Parser {
                 Kw as t {
                     match t.kw {
                         // TODO: 参看算法思路，需要处理的情况: LParen, Dot, LBracket
+                        LParen {
+                            self.consume_keyword(Keyword.LParen)
+                            Vec<Expr> args = Vec<Expr>.new()
+
+                            if not self.peek().is_keyword(Keyword.RParen) {
+                                loop {
+                                    args.push(self.parse_expr())
+                                    if self.peek().is_keyword(Keyword.Comma) {
+                                        self.consume_keyword(Keyword.Comma)
+                                    } else {
+                                        break
+                                    }
+                                }
+                            }
+
+                            self.consume_keyword(Keyword.RParen)
+
+                            String callee = String.new()
+                            match expr {
+                                Ident as id {
+                                    callee = id.name
+                                }
+                                _ { self.error(token) }
+                            }
+
+                            expr = Expr.Call(callee, args)
+                        }
+                        Dot {
+                            self.consume_keyword(Keyword.Dot)
+                            String field = self.parse_ident()
+
+                            Expr* base = dyn Expr
+                            *base = expr
+                            expr = Expr.FieldAccess(base, field)
+                        }
+                        LBracket {
+                            self.consume_keyword(Keyword.LBracket)
+                            Expr index = self.parse_expr()
+                            self.consume_keyword(Keyword.RBracket)
+
+                            Expr* left_ptr = dyn Expr
+                            *left_ptr = expr
+                            Expr* right_ptr = dyn Expr
+                            *right_ptr = index
+                            expr = Expr.Binary(left_ptr, BinaryOp.Index, right_ptr)
+                        }
                         _ { break }
                     }
                 }
