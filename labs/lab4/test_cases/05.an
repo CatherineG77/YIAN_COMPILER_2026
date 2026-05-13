@@ -1,0 +1,117 @@
+// Focus: control flow: loop, for, while, if, match, break, continue
+
+enum Priority {
+    Low
+    Normal
+    High
+    Urgent
+}
+
+enum TaskState {
+    New
+    Ready
+    Running
+    Blocked
+    Done
+}
+
+i32 priority_weight(Priority p) {
+    match p {
+        Low { return 1; }
+        Normal { return 2; }
+        High { return 3; }
+        Urgent { return 5; }
+    }
+}
+
+i32 state_bonus(TaskState state) {
+    match state {
+        New { return 0; }
+        Ready { return 1; }
+        Running { return 2; }
+        Blocked { return -1; }
+        Done { return 3; }
+    }
+}
+
+i32 process_queue(i32 limit) {
+    let idx: i32 = 0;
+    let processed: i32 = 0;
+    let skipped: i32 = 0;
+    let score: i32 = 0;
+
+    loop {
+        if idx >= limit {
+            break;
+        }
+
+        idx += 1;
+
+        if idx % 4 == 0 {
+            skipped += 1;
+            continue;
+        }
+
+        if idx == 9 {
+            break;
+        }
+
+        if idx % 2 == 0 {
+            processed += 1;
+            score += idx * 2;
+        } else {
+            score += idx;
+        }
+    }
+
+    let attempt: i32 = 1;
+    let backlog: i32 = 0;
+    while attempt <= 8 {
+        if attempt % 3 == 0 {
+            attempt += 1;
+            continue;
+        }
+
+        backlog += attempt;
+        if backlog > 10 {
+            break;
+        }
+
+        attempt += 1;
+    }
+
+    let batch_total: i32 = 0;
+    for let step: i32 = 0; step < 6; step += 1 {
+        if step == 1 {
+            continue;
+        }
+        if step == 5 {
+            break;
+        }
+        batch_total += step * 3;
+    }
+
+    let p1: Priority = Priority.High;
+    let p2: Priority = Priority.Urgent;
+    let s1: TaskState = TaskState.Ready;
+    let s2: TaskState = TaskState.Blocked;
+
+    let combined: i32 = priority_weight(p1) + priority_weight(p2) + state_bonus(s1) + state_bonus(s2);
+    let total: i32 = score + backlog + batch_total + combined;
+
+    if processed > 0 and skipped > 0 and total > 0 {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
+i32 main() {
+    let result: i32 = process_queue(12);
+
+    if result == 0 {
+        return 0;
+    } else {
+        return 1;
+    }
+}

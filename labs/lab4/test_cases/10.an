@@ -1,0 +1,139 @@
+// Complex test: binary search tree with validation helpers
+
+struct TreeNode {
+    i32 value
+    bool has_left
+    bool has_right
+    TreeNode* left
+    TreeNode* right
+}
+
+TreeNode* tree_new_node(i32 value) {
+    let node: TreeNode* = dyn TreeNode;
+    node.value = value;
+    node.has_left = false;
+    node.has_right = false;
+    return node;
+}
+
+TreeNode* tree_insert(TreeNode* root, i32 value) {
+    if value < root.value {
+        if not root.has_left {
+            root.left = tree_new_node(value);
+            root.has_left = true;
+        } else {
+            tree_insert(root.left, value);
+        }
+    } else if value > root.value {
+        if not root.has_right {
+            root.right = tree_new_node(value);
+            root.has_right = true;
+        } else {
+            tree_insert(root.right, value);
+        }
+    }
+    return root;
+}
+
+bool tree_search(TreeNode* root, i32 value) {
+    if value == root.value {
+        return true;
+    } else if value < root.value {
+        if not root.has_left {
+            return false;
+        }
+        return tree_search(root.left, value);
+    } else {
+        if not root.has_right {
+            return false;
+        }
+        return tree_search(root.right, value);
+    }
+}
+
+i32 tree_count(TreeNode* node) {
+    let count: i32 = 1;
+    if node.has_left {
+        count += tree_count(node.left);
+    }
+    if node.has_right {
+        count += tree_count(node.right);
+    }
+    return count;
+}
+
+i32 tree_height(TreeNode* node) {
+    let left_height: i32 = 0;
+    let right_height: i32 = 0;
+
+    if node.has_left {
+        left_height = tree_height(node.left);
+    }
+    if node.has_right {
+        right_height = tree_height(node.right);
+    }
+
+    if left_height > right_height {
+        return left_height + 1;
+    } else {
+        return right_height + 1;
+    }
+}
+
+i32 tree_min(TreeNode* node) {
+    if node.has_left {
+        return tree_min(node.left);
+    }
+    return node.value;
+}
+
+i32 tree_max(TreeNode* node) {
+    if node.has_right {
+        return tree_max(node.right);
+    }
+    return node.value;
+}
+
+void tree_delete(TreeNode* node) {
+    if node.has_left {
+        tree_delete(node.left);
+    }
+    if node.has_right {
+        tree_delete(node.right);
+    }
+    del node;
+}
+
+i32 main() {
+    let root: TreeNode* = tree_new_node(50);
+
+    tree_insert(root, 30);
+    tree_insert(root, 70);
+    tree_insert(root, 20);
+    tree_insert(root, 40);
+    tree_insert(root, 60);
+    tree_insert(root, 80);
+    tree_insert(root, 35);
+    tree_insert(root, 45);
+    tree_insert(root, 65);
+    tree_insert(root, 75);
+    tree_insert(root, 85);
+
+    let found_45: bool = tree_search(root, 45);
+    let found_25: bool = tree_search(root, 25);
+    let found_85: bool = tree_search(root, 85);
+    let found_90: bool = tree_search(root, 90);
+
+    let count: i32 = tree_count(root);
+    let height: i32 = tree_height(root);
+    let min_value: i32 = tree_min(root);
+    let max_value: i32 = tree_max(root);
+
+    tree_delete(root);
+
+    if found_45 and not found_25 and found_85 and not found_90 and count == 12 and height == 4 and min_value == 20 and max_value == 85 {
+        return 0;
+    } else {
+        return 1;
+    }
+}

@@ -1,0 +1,167 @@
+// Complex test: matrix arithmetic and transformations
+
+struct Matrix {
+    i32* data
+    u64 rows
+    u64 cols
+}
+
+Matrix matrix_new(u64 rows, u64 cols) {
+    let mat: Matrix = Matrix(dyn i32[rows * cols], rows, cols);
+
+    for let i: u64 = 0; i < rows * cols; i += 1 {
+        mat.data[i] = 0;
+    }
+
+    return mat;
+}
+
+u64 matrix_index(u64 row, u64 col, u64 cols) {
+    return row * cols + col;
+}
+
+void matrix_delete(Matrix mat) {
+    del mat.data;
+}
+
+Matrix matrix_add(Matrix a, Matrix b) {
+    if a.rows != b.rows or a.cols != b.cols {
+        return matrix_new(a.rows, a.cols);
+    }
+
+    let result: Matrix = matrix_new(a.rows, a.cols);
+    for let i: u64 = 0; i < a.rows * a.cols; i += 1 {
+        result.data[i] = a.data[i] + b.data[i];
+    }
+
+    return result;
+}
+
+Matrix matrix_transpose(Matrix a) {
+    let result: Matrix = matrix_new(a.cols, a.rows);
+
+    for let row: u64 = 0; row < a.rows; row += 1 {
+        for let col: u64 = 0; col < a.cols; col += 1 {
+            result.data[matrix_index(col, row, result.cols)] = a.data[matrix_index(row, col, a.cols)];
+        }
+    }
+
+    return result;
+}
+
+Matrix matrix_mul(Matrix a, Matrix b) {
+    if a.cols != b.rows {
+        return matrix_new(a.rows, b.cols);
+    }
+
+    let result: Matrix = matrix_new(a.rows, b.cols);
+
+    for let row: u64 = 0; row < a.rows; row += 1 {
+        for let col: u64 = 0; col < b.cols; col += 1 {
+            let acc: i32 = 0;
+            for let k: u64 = 0; k < a.cols; k += 1 {
+                acc += a.data[matrix_index(row, k, a.cols)] * b.data[matrix_index(k, col, b.cols)];
+            }
+            result.data[matrix_index(row, col, result.cols)] = acc;
+        }
+    }
+
+    return result;
+}
+
+bool matrix_equals(Matrix a, Matrix b) {
+    if a.rows != b.rows or a.cols != b.cols {
+        return false;
+    }
+
+    for let i: u64 = 0; i < a.rows * a.cols; i += 1 {
+        if a.data[i] != b.data[i] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+i32 main() {
+    let a: Matrix = matrix_new(2, 3);
+    let b: Matrix = matrix_new(2, 3);
+    let c: Matrix = matrix_new(3, 2);
+
+    a.data[0] = 1;
+    a.data[1] = 2;
+    a.data[2] = 3;
+    a.data[3] = 4;
+    a.data[4] = 5;
+    a.data[5] = 6;
+
+    b.data[0] = 6;
+    b.data[1] = 5;
+    b.data[2] = 4;
+    b.data[3] = 3;
+    b.data[4] = 2;
+    b.data[5] = 1;
+
+    c.data[0] = 1;
+    c.data[1] = 0;
+    c.data[2] = 0;
+    c.data[3] = 1;
+    c.data[4] = 1;
+    c.data[5] = 1;
+
+    let sum: Matrix = matrix_add(a, b);
+    let transposed: Matrix = matrix_transpose(a);
+    let product: Matrix = matrix_mul(a, c);
+    let chained: Matrix = matrix_mul(sum, c);
+
+    let expected_sum: Matrix = matrix_new(2, 3);
+    expected_sum.data[0] = 7;
+    expected_sum.data[1] = 7;
+    expected_sum.data[2] = 7;
+    expected_sum.data[3] = 7;
+    expected_sum.data[4] = 7;
+    expected_sum.data[5] = 7;
+
+    let expected_transposed: Matrix = matrix_new(3, 2);
+    expected_transposed.data[0] = 1;
+    expected_transposed.data[1] = 4;
+    expected_transposed.data[2] = 2;
+    expected_transposed.data[3] = 5;
+    expected_transposed.data[4] = 3;
+    expected_transposed.data[5] = 6;
+
+    let expected_product: Matrix = matrix_new(2, 2);
+    expected_product.data[0] = 4;
+    expected_product.data[1] = 5;
+    expected_product.data[2] = 10;
+    expected_product.data[3] = 11;
+
+    let expected_chained: Matrix = matrix_new(2, 2);
+    expected_chained.data[0] = 14;
+    expected_chained.data[1] = 14;
+    expected_chained.data[2] = 14;
+    expected_chained.data[3] = 14;
+
+    let ok: bool = matrix_equals(sum, expected_sum)
+        and matrix_equals(transposed, expected_transposed)
+        and matrix_equals(product, expected_product)
+        and matrix_equals(chained, expected_chained);
+
+    matrix_delete(a);
+    matrix_delete(b);
+    matrix_delete(c);
+    matrix_delete(sum);
+    matrix_delete(transposed);
+    matrix_delete(product);
+    matrix_delete(chained);
+    matrix_delete(expected_sum);
+    matrix_delete(expected_transposed);
+    matrix_delete(expected_product);
+    matrix_delete(expected_chained);
+
+    if ok {
+        return 0;
+    } else {
+        return 1;
+    }
+}

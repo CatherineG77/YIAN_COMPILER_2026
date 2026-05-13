@@ -1,0 +1,119 @@
+// Focus: operations: arithmetic, comparison, logical
+
+i32 clamp(i32 value, i32 low, i32 high) {
+    if value < low {
+        return low;
+    } else if value > high {
+        return high;
+    } else {
+        return value;
+    }
+}
+
+i32 line_total(i32 qty, i32 unit_price, i32 discount_rate) {
+    let gross: i32 = qty * unit_price;
+    let discount: i32 = gross * discount_rate / 100;
+    return gross - discount;
+}
+
+bool eligible_free_shipping(i32 total, bool vip, i32 region) {
+    return (total >= 300 or vip) and region == 1;
+}
+
+i32 risk_score(i32 age, i32 order_count, i32 flags) {
+    let score: i32 = 0;
+    if age < 18 or age > 65 {
+        score += 1;
+    }
+    if order_count == 0 {
+        score += 1;
+    }
+    if (flags & 1) != 0 {
+        score += 1;
+    }
+    if (flags & 2) != 0 {
+        score += 1;
+    }
+    if (flags & 4) != 0 {
+        score += 1;
+    }
+    return score;
+}
+
+i32 checkout_total(
+    i32 qty,
+    i32 unit_price,
+    i32 discount_rate,
+    i32 tax_rate,
+    i32 shipping,
+    bool vip,
+    i32 region,
+    i32 age,
+    i32 order_count,
+    i32 flags
+) {
+    let subtotal: i32 = line_total(qty, unit_price, discount_rate);
+    let tax: i32 = subtotal * tax_rate / 100;
+    let ship_fee: i32 = shipping;
+
+    if eligible_free_shipping(subtotal, vip, region) {
+        ship_fee = 0;
+    }
+
+    let risk: i32 = risk_score(age, order_count, flags);
+    if risk >= 3 {
+        ship_fee += 20;
+    }
+
+    let promo: i32 = 0;
+    if vip and subtotal >= 200 {
+        promo = 15;
+    } else if subtotal >= 500 {
+        promo = 30;
+    } else {
+        promo = 5;
+    }
+
+    let total: i32 = subtotal + tax + ship_fee - promo;
+    return clamp(total, 0, 100000);
+}
+
+i32 main() {
+    let qty: i32 = 3;
+    let unit_price: i32 = 128;
+    let discount_rate: i32 = 10;
+    let tax_rate: i32 = 8;
+    let shipping: i32 = 25;
+    let vip: bool = true;
+    let region: i32 = 1;
+    let age: i32 = 29;
+    let order_count: i32 = 5;
+    let flags: i32 = 2;
+
+    let subtotal: i32 = line_total(qty, unit_price, discount_rate);
+    let total: i32 = checkout_total(
+        qty,
+        unit_price,
+        discount_rate,
+        tax_rate,
+        shipping,
+        vip,
+        region,
+        age,
+        order_count,
+        flags
+    );
+
+    let expected_subtotal: i32 = 346;
+    let expected_total: i32 = 358;
+
+    let logic_ok: bool = (subtotal == expected_subtotal) and (total == expected_total);
+    let bit_ok: bool = ((flags & 2) != 0) and ((flags | 1) > flags) and ((flags ^ 1) != flags);
+    let precedence_ok: bool = 2 + 3 * 4 == 14 and (2 + 3) * 4 == 20 and 20 / 5 * 2 == 8;
+
+    if logic_ok and bit_ok and precedence_ok {
+        return 0;
+    } else {
+        return 1;
+    }
+}

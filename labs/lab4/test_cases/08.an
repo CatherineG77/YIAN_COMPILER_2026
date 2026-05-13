@@ -1,0 +1,145 @@
+// Complex test: multiple sorting algorithms
+
+void swap(i32* a, i32* b) {
+    let temp: i32 = *a;
+    *a = *b;
+    *b = temp;
+}
+
+u64 partition(i32* arr, u64 low, u64 high) {
+    let pivot_idx: u64 = high - 1;
+    let pivot: i32 = arr[pivot_idx];
+    let i: u64 = low;
+
+    for let j: u64 = low; j < pivot_idx; j += 1 {
+        if arr[j] < pivot {
+            swap(&arr[i], &arr[j]);
+            i += 1;
+        }
+    }
+    swap(&arr[i], &arr[pivot_idx]);
+    return i;
+}
+
+void quick_sort(i32* arr, u64 low, u64 high) {
+    if high <= low + 1 {
+        return;
+    }
+    let pi: u64 = partition(arr, low, high);
+    quick_sort(arr, low, pi);
+    quick_sort(arr, pi + 1, high);
+}
+
+void bubble_sort(i32* arr, u64 n) {
+    for let i: u64 = 0; i < n; i += 1 {
+        for let j: u64 = 0; j + 1 < n - i; j += 1 {
+            if arr[j] > arr[j + 1] {
+                swap(&arr[j], &arr[j + 1]);
+            }
+        }
+    }
+}
+
+void selection_sort(i32* arr, u64 n) {
+    for let i: u64 = 0; i < n; i += 1 {
+        let min_idx: u64 = i;
+        for let j: u64 = i + 1; j < n; j += 1 {
+            if arr[j] < arr[min_idx] {
+                min_idx = j;
+            }
+        }
+
+        if min_idx != i {
+            swap(&arr[i], &arr[min_idx]);
+        }
+    }
+}
+
+void insertion_sort(i32* arr, u64 n) {
+    for let i: u64 = 1; i < n; i += 1 {
+        for let j: u64 = i; j > 0 and arr[j - 1] > arr[j]; j -= 1 {
+            swap(&arr[j - 1], &arr[j]);
+        }
+    }
+}
+
+void merge(i32* arr, i32* temp, u64 left, u64 mid, u64 right) {
+    let i: u64 = left;
+    let j: u64 = mid;
+    let k: u64 = left;
+
+    while i < mid and j < right {
+        if arr[i] <= arr[j] {
+            temp[k] = arr[i];
+            i += 1;
+        } else {
+            temp[k] = arr[j];
+            j += 1;
+        }
+        k += 1;
+    }
+
+    while i < mid {
+        temp[k] = arr[i];
+        i += 1;
+        k += 1;
+    }
+
+    while j < right {
+        temp[k] = arr[j];
+        j += 1;
+        k += 1;
+    }
+
+    for let t: u64 = left; t < right; t += 1 {
+        arr[t] = temp[t];
+    }
+}
+
+void merge_sort_impl(i32* arr, i32* temp, u64 left, u64 right) {
+    if right <= left + 1 {
+        return;
+    }
+
+    let mid: u64 = (left + right) / 2;
+    merge_sort_impl(arr, temp, left, mid);
+    merge_sort_impl(arr, temp, mid, right);
+    merge(arr, temp, left, mid, right);
+}
+
+bool is_sorted(i32* arr, u64 n) {
+    for let i: u64 = 1; i < n; i += 1 {
+        if arr[i - 1] > arr[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+i32 main() {
+    let arr_quick: i32[10] = [10, 7, 8, 9, 1, 5, 3, 2, 4, 6];
+    let arr_bubble: i32[10] = [9, 4, 7, 1, 3, 8, 2, 6, 5, 10];
+    let arr_selection: i32[10] = [6, 2, 9, 1, 8, 3, 10, 5, 4, 7];
+    let arr_insertion: i32[10] = [5, 1, 4, 2, 8, 0, 9, 7, 3, 6];
+    let arr_merge: i32[10] = [8, 3, 7, 4, 9, 2, 6, 5, 1, 0];
+    let temp_merge: i32[10] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let n: u64 = 10;
+
+    quick_sort(&arr_quick[0], 0, n);
+    bubble_sort(&arr_bubble[0], n);
+    selection_sort(&arr_selection[0], n);
+    insertion_sort(&arr_insertion[0], n);
+    merge_sort_impl(&arr_merge[0], &temp_merge[0], 0, n);
+
+    let quick_sorted: bool = is_sorted(&arr_quick[0], n);
+    let bubble_sorted: bool = is_sorted(&arr_bubble[0], n);
+    let selection_sorted: bool = is_sorted(&arr_selection[0], n);
+    let insertion_sorted: bool = is_sorted(&arr_insertion[0], n);
+    let merge_sorted: bool = is_sorted(&arr_merge[0], n);
+
+    if quick_sorted and bubble_sorted and selection_sorted and insertion_sorted and merge_sorted {
+        return 0;
+    } else {
+        return 1;
+    }
+}

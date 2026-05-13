@@ -1,0 +1,57 @@
+// Focus: types: array and pointer
+
+i32 sum_ptr_range(i32* begin, i32* end) {
+    let total: i32 = 0;
+    for let p: i32* = begin; p < end; p += 1 {
+        total += *p;
+    }
+    return total;
+}
+
+i32 scale_and_sum(i32* begin, i32* end, i32 factor) {
+    let total: i32 = 0;
+    for let p: i32* = begin; p < end; p += 1 {
+        *p *= factor;
+        total += *p;
+    }
+    return total;
+}
+
+i32 main() {
+    let samples: i32[6] = [2, 4, 6, 8, 10, 12];
+    let first_half: i32* = &samples[0];
+    let mid: i32* = &samples[3];
+    let last: i32* = &samples[5] + 1;
+
+    let total_all: i32 = sum_ptr_range(first_half, last);
+    let total_tail: i32 = sum_ptr_range(mid, last);
+
+    let pivot: i32 = 5;
+    let pivot_ptr: i32* = &pivot;
+    *pivot_ptr += 7;
+
+    let heap_one: i32* = dyn i32;
+    let heap_buf: i32* = dyn i32[4];
+    *heap_one = *pivot_ptr + samples[0];
+    heap_buf[0] = samples[1];
+    heap_buf[1] = samples[2];
+    heap_buf[2] = samples[3];
+    heap_buf[3] = samples[4];
+
+    let heap_begin: i32* = &heap_buf[0];
+    let heap_end: i32* = &heap_buf[3] + 1;
+    let scaled_total: i32 = scale_and_sum(heap_begin, heap_end, 2);
+
+    let bridge: i32 = 0;
+    let bridge_ptr: i32* = &bridge;
+    *bridge_ptr = total_all + total_tail + *heap_one + scaled_total;
+
+    del heap_one;
+    del heap_buf;
+
+    if *bridge_ptr == 142 {
+        return 0;
+    } else {
+        return 1;
+    }
+}

@@ -1,0 +1,46 @@
+// Focus: function declaration, call and return
+
+i32 factorial(i32 n) {
+    if n <= 1 {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+i32 fibonacci(i32 n) {
+    if n <= 1 {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+i32 gcd(i32 a, i32 b) {
+    if b == 0 {
+        return a;
+    }
+    return gcd(b, a % b);
+}
+
+i32 power(i32 base, i32 exp) {
+    if exp <= 0 {
+        return 1;
+    }
+    return base * power(base, exp - 1);
+}
+
+bool all_checks() {
+    let f: i32 = factorial(7);  // 5040
+    let fib: i32 = fibonacci(10); // 55
+    let g: i32 = gcd(48, 18); // 6
+    let p: i32 = power(2, 8); // 256
+
+    return f == 5040 and fib == 55 and g == 6 and p == 256;
+}
+
+i32 main() {
+    if all_checks() {
+        return 0; // success
+    } else {
+        return 1; // failure
+    }
+}

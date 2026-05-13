@@ -1,0 +1,140 @@
+// Complex test: GPA calculation
+
+enum Grade {
+    A
+    B
+    C
+    D
+    F
+}
+
+enum GradeSuffix {
+    Plus
+    None
+    Minus
+}
+
+struct GradeEntry {
+    Grade grade
+    GradeSuffix suffix
+}
+
+GradeEntry score_to_grade(i32 score) {
+    if score >= 98 {
+        return GradeEntry(Grade.A, GradeSuffix.Plus);
+    } else if score >= 93 {
+        return GradeEntry(Grade.A, GradeSuffix.None);
+    } else if score >= 90 {
+        return GradeEntry(Grade.A, GradeSuffix.Minus);
+    } else if score >= 88 {
+        return GradeEntry(Grade.B, GradeSuffix.Plus);
+    } else if score >= 85 {
+        return GradeEntry(Grade.B, GradeSuffix.None);
+    } else if score >= 83 {
+        return GradeEntry(Grade.B, GradeSuffix.Minus);
+    } else if score >= 80 {
+        return GradeEntry(Grade.C, GradeSuffix.Plus);
+    } else if score >= 77 {
+        return GradeEntry(Grade.C, GradeSuffix.None);
+    } else if score >= 75 {
+        return GradeEntry(Grade.C, GradeSuffix.Minus);
+    } else if score >= 73 {
+        return GradeEntry(Grade.D, GradeSuffix.Plus);
+    } else if score >= 70 {
+        return GradeEntry(Grade.D, GradeSuffix.None);
+    } else if score >= 60 {
+        return GradeEntry(Grade.D, GradeSuffix.Minus);
+    } else {
+        return GradeEntry(Grade.F, GradeSuffix.None);
+    }
+}
+
+i32 grade_to_gpa_x10(GradeEntry entry) {
+    match entry.grade {
+        A {
+            match entry.suffix {
+                Plus { return 40; }
+                None { return 40; }
+                Minus { return 37; }
+            }
+        }
+        B {
+            match entry.suffix {
+                Plus { return 33; }
+                None { return 30; }
+                Minus { return 27; }
+            }
+        }
+        C {
+            match entry.suffix {
+                Plus { return 23; }
+                None { return 20; }
+                Minus { return 17; }
+            }
+        }
+        D {
+            match entry.suffix {
+                Plus { return 13; }
+                None { return 10; }
+                Minus { return 10; }
+            }
+        }
+        F {
+            return 0;
+        }
+    }
+}
+
+i32 apply_honors_bonus_x10(i32 gpa_x10, bool honors) {
+    if honors {
+        let boosted: i32 = gpa_x10 + 3;
+        if boosted > 40 {
+            return 40;
+        } else {
+            return boosted;
+        }
+    } else {
+        return gpa_x10;
+    }
+}
+
+i32 weighted_average_gpa_points(i32[6] scores, i32[6] credits, bool[6] honors) {
+    let total_points: i32 = 0;
+
+    for let i: u64 = 0; i < 6; i += 1 {
+        let entry: GradeEntry = score_to_grade(scores[i]);
+        let gpa_x10: i32 = grade_to_gpa_x10(entry);
+        let adjusted: i32 = apply_honors_bonus_x10(gpa_x10, honors[i]);
+        total_points += adjusted * credits[i];
+    }
+
+    return total_points;
+}
+
+i32 main() {
+    let scores: i32[6] = [95, 82, 76, 88, 59, 91];
+    let credits: i32[6] = [4, 3, 2, 3, 2, 4];
+    let honors: bool[6] = [true, false, false, true, false, true];
+
+    let total_points: i32 = weighted_average_gpa_points(scores, credits, honors);
+    let total_credits: i32 = 0;
+    let rounded: i32 = 0;
+
+    for let i: u64 = 0; i < 6; i += 1 {
+        total_credits += credits[i];
+    }
+
+    if total_points >= 34 * total_credits {
+        rounded = 3;
+    } else if total_points >= 28 * total_credits {
+        rounded = 2;
+    } else {
+        rounded = 1;
+    }
+
+    if total_points < 30 * total_credits and rounded == 2 {
+        return 0;
+    } else {
+        return 1;
+    }
+}
