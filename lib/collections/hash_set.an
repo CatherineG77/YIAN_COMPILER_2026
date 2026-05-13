@@ -21,7 +21,7 @@ impl<T> HashSet<T> {
     }
     
     static pub Self with_capacity_and_hasher(u64 capacity, Murmur3BuildHasher hasher_builder) {
-        u64 actual_capacity = Self.next_power_of_two(capacity)
+        u64 actual_capacity = capacity.next_power_of_two()
 
         u64 growth_left = Self.calculate_growth_left(actual_capacity)
         u8* ctrls = dyn u8[actual_capacity]
@@ -150,7 +150,7 @@ impl<T> HashSet<T> {
     }
 
     resize(u64 new_capacity) {
-        u64 actual_capacity = Self.next_power_of_two(new_capacity)
+        u64 actual_capacity = new_capacity.next_power_of_two()
         if actual_capacity == self.capacity {
             return
         }
@@ -200,25 +200,6 @@ impl<T> HashSet<T> {
         Murmur3Hasher hasher = self.hasher_builder.build_hasher()
         value.hash(hasher)
         return hasher.finish()
-    }
-
-    static pub u64 next_power_of_two(u64 n) {
-        if n == 0 {
-            return 0
-        }
-        
-        if n <= 1 {
-            return 1
-        }
-        
-        n -= 1
-        n |= n >> 1
-        n |= n >> 2
-        n |= n >> 4
-        n |= n >> 8
-        n |= n >> 16
-        n |= n >> 32
-        return n + 1
     }
 }
 

@@ -38,7 +38,7 @@ String float_to_string(f64 value) {
     }
 
     if value == 0.0 {
-        return String.from("0")
+        return String.from("0.0")
     }
 
     String out = String.new()
@@ -51,11 +51,13 @@ String float_to_string(f64 value) {
     append_unsigned_digits(&out, int_part)
 
     f64 frac = value - f64(int_part)
+
+    out.push('.')
     if frac == 0.0 {
+        out.push('0')
         return out
     }
 
-    out.push('.')
     u64 count = 0
     while count < 6u64 {
         frac *= 10.0

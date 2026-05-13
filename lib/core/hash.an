@@ -1,4 +1,5 @@
 from ops import min
+from slice import from_raw_parts
 
 pub trait Hasher {
     u64 finish();
@@ -128,5 +129,12 @@ impl Murmur3BuildHasher {
 impl BuildHasher<Murmur3Hasher> for Murmur3BuildHasher {
     Murmur3Hasher build_hasher() {
         return Murmur3Hasher.with_seed(self.seed)
+    }
+}
+
+impl<T> Hash<Murmur3Hasher> for T* {
+    hash(Murmur3Hasher hasher) {
+        u8* ptr = bitcast<u8*>(self)
+        hasher.write(from_raw_parts(ptr, 8))
     }
 }
