@@ -1,0 +1,94 @@
+from std.core.io import read_file, write_file, print
+from std.core.vec import Vec
+from std.core.string import String
+
+from lexer import tokenize
+from token import Token
+
+from parser import Parser
+from ast import Program
+
+from sema import Sema, HIRProgram
+
+from translator import Translator
+
+write_llvm_output(str output_path, String* ir) {
+    write_file(output_path, ir.as_str())
+}
+
+write_hir(str output_path, HIRProgram* hir) {
+    String out = String.new()
+    out += "=== Semantic Analysis Output ===\n"
+    out += "=== HIR Program ===\n"
+    out += hir.program.export()
+    out += "=== Type Context ===\n"
+    out += hir.type_ctx.export()
+    out += "=== Symbol Context ===\n"
+    out += hir.symbol_ctx.export()
+    write_file(output_path, out.as_str())
+}
+
+write_ast(str output_path, Program* program) {
+    String out = String.new()
+    out += "=== AST Program ===\n"
+    out += program.export()
+    write_file(output_path, out.as_str())
+}
+
+i32 main() {
+    Vec<str> tests = Vec<str>.new()
+    tests.push("01")
+    tests.push("02")
+    tests.push("03")
+    tests.push("04")
+    tests.push("05")
+    tests.push("06")
+    tests.push("07")
+    tests.push("08")
+    tests.push("09")
+    tests.push("10")
+
+    for test in tests {
+        String input = String.from("labs/lab4/test_cases/") + test + ".an"
+        String output = String.from("labs/lab4/ll/") + test + ".ll"
+        String hir_output = String.from("labs/lab4/hir/") + test + ".txt"
+        String ast_output = String.from("labs/lab4/ast/") + test + ".txt"
+        str input_path = input.as_str()
+        str output_path = output.as_str()
+        str hir_output_path = hir_output.as_str()
+        str ast_output_path = ast_output.as_str()
+
+		str source = read_file(input_path)
+		Vec<Token> tokens = tokenize(source)
+
+		print("Lexer done.\n")
+
+        Parser parser = Parser.new(tokens)
+        Program program = parser.parse()
+        write_ast(ast_output_path, &program);
+
+        print("Parser done. AST output written to: ")
+        print(ast_output_path)
+        print("\n")
+
+        Sema sema = Sema.new(program)
+        sema.analyze()
+        HIRProgram hir_program = sema.export()
+        write_hir(hir_output_path, &hir_program);
+
+        print("Semantic Analysis done. HIR output written to: ")
+        print(hir_output_path)
+        print("\n")
+
+        Translator translator = Translator.new(hir_program)
+        translator.translate()
+        String llvm_ir = translator.export()
+        write_llvm_output(output_path, &llvm_ir)
+
+        print("Translation done. LLVM IR written to: ")
+        print(output_path)
+        print("\n")
+    }
+
+    return 0
+}

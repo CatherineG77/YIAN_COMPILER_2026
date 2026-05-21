@@ -1,0 +1,356 @@
+from std.core.vec import Vec
+from std.core.string import String
+from std.collections.hash_map import HashMap
+
+pub struct StructField {
+    pub String name
+    pub u64 type_id
+    pub u64 index
+}
+
+pub struct EnumVariant {
+    pub String name
+    pub u64 discriminant
+}
+
+pub struct FuncParam {
+    pub String name
+    pub u64 type_id
+}
+
+pub struct IntType {
+    pub u64 size // 1, 2, 4, 8
+    pub bool is_signed
+}
+
+pub struct FloatType {
+    pub u64 size // 4, 8
+}
+
+pub struct ArrayType {
+    pub u64 element_type_id
+    pub u64 length
+}
+
+pub struct PointerType {
+    pub u64 pointee_type_id
+}
+
+pub struct StructType {
+    pub String name
+    pub Vec<StructField> fields
+}
+
+pub struct EnumType {
+    pub String name
+    pub Vec<EnumVariant> variants
+}
+
+impl EnumType {
+    pub u64 get_variant_discriminant(String variant_name) {
+        for variant in self.variants {
+            if variant.name == variant_name {
+                return variant.discriminant
+            }
+        }
+        panic("Variant not found")
+    }
+}
+
+pub struct FunctionType {
+    pub String name
+    pub Vec<FuncParam> params
+    pub u64 return_type_id
+}
+
+pub enum TypeKind {
+    Char, Bool, Str, Void,
+    Int { IntType i }
+    Float { FloatType f }
+    Array {ArrayType a}
+    Pointer {PointerType p}
+    Struct {StructType s}
+    Enum {EnumType e}
+    Function {FunctionType f}
+}
+
+impl TypeKind {
+    pub bool is_integer() {
+        match *self {
+            Int { return true }
+            _ { return false }
+        }
+    }
+
+    pub bool is_float() {
+        match *self {
+            Float { return true }
+            _ { return false }
+        }
+    }
+
+    pub bool is_array() {
+        match *self {
+            Array { return true }
+            _ { return false }
+        }
+    }
+
+    pub bool is_pointer() {
+        match *self {
+            Pointer { return true }
+            _ { return false }
+        }
+    }
+
+    pub bool is_struct() {
+        match *self {
+            Struct { return true }
+            _ { return false }
+        }
+    }
+
+    pub bool is_enum() {
+        match *self {
+            Enum { return true }
+            _ { return false }
+        }
+    }
+
+    pub bool is_function() {
+        match *self {
+            Function { return true }
+            _ { return false }
+        }
+    }
+
+    pub bool is_void() {
+        match *self {
+            Void { return true }
+            _ { return false }
+        }
+    }
+
+    pub bool is_char() {
+        match *self {
+            Char { return true }
+            _ { return false }
+        }
+    }
+
+    pub bool is_bool() {
+        match *self {
+            Bool { return true }
+            _ { return false }
+        }
+    }
+
+    pub bool is_str() {
+        match *self {
+            Str { return true }
+            _ { return false }
+        }
+    }
+
+    pub IntType as_int() {
+        match *self {
+            Int as _i { return _i.i }
+            _ { panic("Not an integer type") }
+        }
+    }
+
+    pub FloatType as_float() {
+        match *self {
+            Float as _f { return _f.f }
+            _ { panic("Not a float type") }
+        }
+    }
+
+    pub ArrayType as_array() {
+        match *self {
+            Array as _a { return _a.a }
+            _ { panic("Not an array type") }
+        }
+    }
+
+    pub PointerType as_pointer() {
+        match *self {
+            Pointer as _p { return _p.p }
+            _ { panic("Not a pointer type") }
+        }
+    }
+
+    pub StructType as_struct() {
+        match *self {
+            Struct as _s { return _s.s }
+            _ { panic("Not a struct type") }
+        }
+    }
+
+    pub EnumType as_enum() {
+        match *self {
+            Enum as _e { return _e.e }
+            _ { panic("Not an enum type") }
+        }
+    }
+
+    pub FunctionType as_function() {
+        match *self {
+            Function as _f { return _f.f }
+            _ { panic("Not a function type") }
+        }
+    }
+}
+
+pub struct Type {
+    pub u64 type_id
+    pub TypeKind kind
+}
+
+pub struct TypeCtx {
+    pub HashMap<u64, Type> types
+    u64 next_id
+    HashMap<u64, u64> ptr_cache
+    HashMap<u64, HashMap<u64, u64>> arr_cache
+}
+
+impl TypeCtx {
+    pub static TypeCtx new() {
+        Self type_ctx = TypeCtx(
+            types=HashMap<u64, Type>.new(), 
+            next_id=100, 
+            ptr_cache=HashMap<u64, u64>.new(),
+            arr_cache=HashMap<u64, HashMap<u64, u64>>.new()
+        )
+
+        // 预定义基本类型
+        type_ctx.predefine_type(1, TypeKind.Int(IntType(size=1, is_signed=true))) // i8
+        type_ctx.predefine_type(2, TypeKind.Int(IntType(size=2, is_signed=true))) // i16
+        type_ctx.predefine_type(3, TypeKind.Int(IntType(size=4, is_signed=true))) // i32
+        type_ctx.predefine_type(4, TypeKind.Int(IntType(size=8, is_signed=true))) // i64
+        type_ctx.predefine_type(5, TypeKind.Int(IntType(size=1, is_signed=false))) // u8
+        type_ctx.predefine_type(6, TypeKind.Int(IntType(size=2, is_signed=false))) // u16
+        type_ctx.predefine_type(7, TypeKind.Int(IntType(size=4, is_signed=false))) // u32
+        type_ctx.predefine_type(8, TypeKind.Int(IntType(size=8, is_signed=false))) // u64
+        type_ctx.predefine_type(9, TypeKind.Float(FloatType(size=4)))  // f32
+        type_ctx.predefine_type(10, TypeKind.Float(FloatType(size=8))) // f64
+        type_ctx.predefine_type(11, TypeKind.Char)
+        type_ctx.predefine_type(12, TypeKind.Bool)
+        type_ctx.predefine_type(13, TypeKind.Str)
+        type_ctx.predefine_type(14, TypeKind.Void)
+
+        return type_ctx
+    }
+
+    predefine_type(u64 id, TypeKind kind) {
+        self.types.insert(id, Type(type_id=id, kind=kind))
+    }
+
+    pub u64 add_type(TypeKind kind) {
+        match kind {
+            Array as arr {
+                u64 elem_id = arr.a.element_type_id
+                u64 len = arr.a.length
+                
+                if self.arr_cache.contains(elem_id) {
+                    if self.arr_cache[elem_id].contains(len) {
+                        return self.arr_cache[elem_id][len]
+                    }
+                } else {
+                    self.arr_cache.insert(elem_id, HashMap<u64, u64>.new())
+                }
+
+                u64 id = self.next_id
+                self.next_id += 1
+                self.types.insert(id, Type(type_id=id, kind=kind))
+                self.arr_cache[elem_id].insert(len, id)
+                return id
+            }
+            Pointer as ptr {
+                u64 pointee_id = ptr.p.pointee_type_id
+                if self.ptr_cache.contains(pointee_id) {
+                    return self.ptr_cache[pointee_id]
+                }
+                
+                u64 id = self.next_id
+                self.next_id += 1
+                self.types.insert(id, Type(type_id=id, kind=kind))
+                self.ptr_cache.insert(pointee_id, id)
+                return id
+            }
+            _ {
+                u64 id = self.next_id
+                self.next_id += 1
+                self.types.insert(id, Type(type_id=id, kind=kind))
+                return id
+            }
+        }
+    }
+    
+    pub Type* get_type(u64 id) {
+        if self.types.contains(id) {
+            return &self.types[id]
+        }
+        panic((String.from("Type ID not found: ") + id.to_string()).as_str())
+    }
+
+    pub String get_name(u64 id) {
+        String name = String.new()
+        Type* t = self.get_type(id)
+        match t.kind {
+            Char { name += "char" }
+            Bool { name += "bool" }
+            Str { name += "str" }
+            Void { name += "void" }
+            Int as _i {
+                if _i.i.is_signed { name += "i" } else { name += "u" }
+                u64 bits = _i.i.size * 8
+                name += bits.to_string()
+            }
+            Float as _f {
+                name += "f"
+                u64 bits = _f.f.size * 8
+                name += bits.to_string()
+            }
+            Array as _a {
+                name += self.get_name(_a.a.element_type_id)
+                name += "["
+                name += _a.a.length.to_string()
+                name += "]"
+            }
+            Pointer as _p {
+                name += self.get_name(_p.p.pointee_type_id)
+                name += "*"
+            }
+            Struct as _s {
+                name += "struct "
+                name += _s.s.name
+            }
+            Enum as _e {
+                name += "enum "
+                name += _e.e.name
+            }
+            Function as _f {
+                name += "fn "
+                name += _f.f.name
+                name += "("
+                for i in 0.._f.f.params.len() {
+                    if i > 0 { name += ", " }
+                    name += self.get_name(_f.f.params[i].type_id)
+                }
+                name += ") -> "
+                name += self.get_name(_f.f.return_type_id)
+            }
+        }
+        return name
+    }
+
+    pub String export() {
+        String result = String.new()
+        for id in self.types {
+            Type* t = &self.types[id]
+            result += id.to_string() + ": " + self.get_name(id) + "\n"
+        }
+        return result
+    }
+}

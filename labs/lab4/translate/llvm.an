@@ -1,0 +1,1035 @@
+from std.core.string import String
+from std.core.vec import Vec
+from std.collections.hash_map import HashMap
+from std.collections.hash_set import HashSet
+
+from expr import BinaryOp
+
+pub struct LLType {
+    pub String name
+}
+
+impl LLType {
+    pub static Self new(str name) {
+        return Self(name=String.from(name))
+    }
+
+    pub Self to_ptr() {
+        return Self(name=self.name + "*")
+    }
+
+    pub Self to_array(u64 length) {
+        return Self(name=String.from("[") + length.to_string() + " x " + self.name + "]")
+    }
+
+    pub Self deref() {
+        // get the type pointed to by this pointer type
+        // Ty* => Ty
+        u8[] bytes = self.name.as_slice()
+        if bytes.last().unwrap() != b'*' {
+            // panic(self.name.as_str())
+            panic("Cannot deref non-pointer type")
+        }
+        u8[] deref_bytes = bytes[0..bytes.len() - 1]
+        return Self(name=String.from(str.from(deref_bytes)))
+    }
+
+    pub Self element_type() {
+        // get the element type of this array type
+        // [N x Ty] => Ty
+        u8[] bytes = self.name.as_slice()
+        assert bytes[0] == b'['
+        assert bytes[bytes.len() - 1] == b']'
+        // find the position of 'x'
+        u64 x_pos = 0
+        for i in 0..bytes.len() {
+            if bytes[i] == b'x' {
+                x_pos = i
+                break
+            }
+        }
+        assert x_pos > 0
+        u8[] elem_type_bytes = bytes[x_pos + 2..bytes.len() - 1] // +2 to skip "x "
+        return Self(name=String.from(str.from(elem_type_bytes)))
+    }
+}
+
+pub struct LLValue {
+    pub String name
+    pub LLType type
+}
+
+pub struct LLBasicBlock {
+    pub String label
+    pub Vec<String> insts
+    pub Vec<LLBasicBlock*> successors
+}
+
+impl LLBasicBlock {
+    pub static Self new(String label) {
+        return Self(
+            label=label,
+            insts=Vec<String>.new(),
+            successors=Vec<LLBasicBlock*>.new()
+        )
+    }
+
+    pub bool is_terminated() {
+        // check if the block is terminated by a terminator instruction (br, ret, unreachable, switch)
+        if self.insts.len() == 0 {
+            return false
+        }
+        String last_inst = self.insts.last().unwrap()
+        return last_inst.starts_with("br ") or last_inst.starts_with("ret ") or last_inst.starts_with("unreachable") or last_inst.starts_with("switch ")
+    }
+
+    pub push(String inst) {
+        self.insts.push(inst)
+    }
+
+    pub String export() {
+        String res = String.new()
+        
+        // block label
+        res += self.label
+        res += ":\n"
+
+        // instructions
+        for inst in self.insts {
+            res += "  "
+            res += inst
+            res += "\n"
+        }
+        res += "\n"
+
+        return res
+    }
+}
+
+pub struct LLFunction {
+    pub String name
+    pub LLType return_type
+    pub Vec<(LLType, String)> params
+    pub LLBasicBlock* entry_block
+    pub Vec<LLBasicBlock*> blocks
+
+    u64 next_reg_id
+    u64 next_label_id
+}
+
+impl LLFunction {
+    pub static Self new(String name, LLType return_type, Vec<(LLType, String)> params) {
+        return Self(
+            name=name,
+            return_type=return_type,
+            params=params,
+            entry_block=dyn LLBasicBlock(String.from(".entry"), Vec<String>.new(), Vec<LLBasicBlock*>.new()),
+            blocks=Vec<LLBasicBlock*>.new(),
+            next_reg_id=0,
+            next_label_id=0
+        )
+    }
+
+    pub String export() {
+        self.dead_code_elimination()
+        self.guarantee_terminated()
+
+        String res = String.new()
+
+        // function header
+        res += "define "
+        res += self.return_type.name
+        res += " @"
+        res += self.name
+        res += "("
+        for i in 0..self.params.len() {
+            if i > 0 { res += ", " }
+            res += self.params[i][0].name
+            res += " %"
+            res += self.params[i][1]
+        }
+        res += ") {\n"
+
+        // basic blocks
+        res += self.entry_block.export()
+        for block in self.blocks {
+            res += block.export()
+        }
+
+        res += "}\n"
+
+        return res
+    }
+
+    dead_code_elimination() {
+        // TODO: remove unreachable blocks
+        // Hint: a block is unreachable if it is unreachable from the entry block
+        // Hint: use graph traversal algorithm (e.g. DFS or BFS) to find reachable blocks
+        // Hint: construct a new blocks list containing only reachable blocks and replace self.blocks with it
+    }
+
+    guarantee_terminated() {
+        bool ret_void = self.return_type.name == "void"
+
+        if not self.entry_block.is_terminated() {
+            if ret_void {
+                self.entry_block.push(String.from("ret void"))
+            } else {
+                panic("Non-void function has non-terminated entry block")
+            }
+        }
+        for block in self.blocks {
+            if block.is_terminated() {
+                continue
+            }
+            if ret_void {
+                block.push(String.from("ret void"))
+            } else {
+                panic("Non-void function has non-terminated block")
+            }
+        }
+    }
+
+    pub LLBasicBlock* create_block(String label) {
+        LLBasicBlock* block = dyn LLBasicBlock(label, Vec<String>.new(), Vec<LLBasicBlock*>.new())
+        self.blocks.push(block)
+        return block
+    }
+
+    pub String next_reg() {
+        String res = String.new()
+        res += "%_"
+        res += self.next_reg_id.to_string()
+        self.next_reg_id += 1
+        return res
+    }
+
+    pub String next_label() {
+        String res = String.new()
+        res += ".bb"
+        res += self.next_label_id.to_string()
+        self.next_label_id += 1
+        return res
+    }
+}
+
+pub struct LLModule {
+    pub Vec<String> type_decls
+    pub Vec<String> extern_decls
+    pub Vec<String> global_strings
+    pub HashMap<String, LLValue> string_map
+    pub Vec<LLFunction> funcs
+
+    u64 next_global_string_id
+}
+
+impl LLModule {
+    pub static Self new() {
+        Vec<String> extern_decls = Vec<String>.new()
+        // malloc & free for memory management
+        extern_decls.push(String.from("declare i8* @malloc(i64)"))
+        extern_decls.push(String.from("declare void @free(i8*)"))
+
+        return Self(
+            type_decls=Vec<String>.new(),
+            extern_decls=extern_decls,
+            global_strings=Vec<String>.new(),
+            string_map=HashMap<String, LLValue>.new(),
+            funcs=Vec<LLFunction>.new(),
+            next_global_string_id=0
+        )
+    }
+
+    pub String export() {
+        String res = String.new()
+
+        // module header
+        res += "; ModuleID = \"main\"\n"
+        res += "target triple = \"x86_64-pc-linux-gnu\"\n"
+        res += "target datalayout = \"e-m:e-i64:64-f80:128-n8:16:32:64-S128\"\n"
+        res += "\n"
+
+        // type declarations
+        for type_decl in self.type_decls {
+            res += type_decl
+            res += "\n"
+        }
+        res += "\n"
+
+        // extern declarations
+        for extern_decl in self.extern_decls {
+            res += extern_decl
+            res += "\n"
+        }
+        res += "\n"
+
+        // global strings
+        for global_str in self.global_strings {
+            res += global_str
+            res += "\n"
+        }
+        res += "\n"
+
+        // function definitions
+        for func in self.funcs {
+            res += func.export()
+            res += "\n"
+        }
+        res += "\n"
+
+        return res
+    }
+
+    pub LLValue get_global_string(String s) {
+        if self.string_map.contains(s) {
+            return self.string_map[s]
+        }
+
+        String name = self.next_global_string()
+        LLType str_ty = LLType.new("i8").to_array(s.len() + 1) // +1 for null terminator
+        self.string_map.insert(s, LLValue(name=name, type=str_ty.to_ptr()))
+
+        String global_str = String.new()
+        global_str += name
+        global_str += " = private unnamed_addr constant "
+        global_str += str_ty.name
+        global_str += " c\""
+        for ch in s.as_slice() {
+            match ch {
+                b'\n' { global_str += "\\0A" }
+                b'\r' { global_str += "\\0D" }
+                b'\t' { global_str += "\\09" }
+                b'\"' { global_str += "\\22" }
+                b'\\' { global_str += "\\5C" }
+                _ { global_str += char(ch) }
+            }
+        }
+        global_str += "\\00\""
+        self.global_strings.push(global_str)
+
+        return self.string_map[s]
+    }
+
+    String next_global_string() {
+        String res = String.new()
+        res += "@.str"
+        res += self.next_global_string_id.to_string()
+        self.next_global_string_id += 1
+        return res
+    }
+}
+
+pub struct LLBuilder {
+    pub LLBasicBlock* current_block
+    pub LLFunction* current_func
+}
+
+impl LLBuilder {
+    pub static Self new(LLFunction* current_func) {
+        return Self(
+            current_func=current_func,
+            current_block=current_func.entry_block
+        )
+    }
+
+    pub LLBasicBlock* create_block() {
+        String label = self.current_func.next_label()
+        LLBasicBlock* block = self.current_func.create_block(label)
+        return block
+    }
+
+    pub set_insert_point(LLBasicBlock* block) {
+        self.current_block = block
+    }
+
+    pub LLValue int_const(u64 value, u64 bit_width) {
+        match bit_width {
+            1 { return LLValue(name=value.to_string(), type=LLType.new("i1")) }
+            8 { return LLValue(name=value.to_string(), type=LLType.new("i8")) }
+            16 { return LLValue(name=value.to_string(), type=LLType.new("i16")) }
+            32 { return LLValue(name=value.to_string(), type=LLType.new("i32")) }
+            64 { return LLValue(name=value.to_string(), type=LLType.new("i64")) }
+            _ { panic("Unsupported integer bit width") }
+        }
+    }
+
+    pub br(LLBasicBlock* dest) {
+        // inst: br label dest.label
+        // jump only if the current block is not terminated
+        if self.current_block.is_terminated() {
+            return
+        }
+
+        String inst = String.new()
+        inst += "br label %"
+        inst += dest.label
+        self.current_block.push(inst)
+
+        // set dest as successor of current block
+        self.current_block.successors.push(dest)
+    }
+
+    pub cond_br(LLValue cond, LLBasicBlock* then_bb, LLBasicBlock* else_bb) {
+        // inst: br i1 cond.name, label then_bb.label, label else_bb.label
+        // assume cond.type is i1
+        String inst = String.new()
+        inst += "br i1 "
+        inst += cond.name
+        inst += ", label %"
+        inst += then_bb.label
+        inst += ", label %"
+        inst += else_bb.label
+
+        self.current_block.push(inst)
+
+        // set then_bb and else_bb as successors of current block
+        self.current_block.successors.push(then_bb)
+        self.current_block.successors.push(else_bb)
+    }
+
+    pub unreachable() {
+        // inst: unreachable
+        String inst = String.new()
+        inst += "unreachable"
+        self.current_block.push(inst)
+    }
+
+    pub LLValue phi(LLType ty, Vec<LLValue> incoming_values, Vec<LLBasicBlock*> incoming_blocks) {
+        // inst: %reg = phi ty [ val0.name, block0.label ], [ val1.name, block1.label ], ...
+        String reg = self.current_func.next_reg()
+        u64 num_incoming = incoming_values.len()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = phi "
+        inst += ty.name
+        inst += " "
+        for i in 0..num_incoming {
+            if i > 0 { inst += ", " }
+            inst += "[ "
+            inst += incoming_values[i].name
+            inst += ", %"
+            inst += incoming_blocks[i].label
+            inst += " ]"
+        }
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=ty)
+    }
+
+    pub switch(LLValue cond, Vec<i64> case_values, Vec<LLBasicBlock*> case_bbs, LLBasicBlock* default_bb) {
+        // inst:
+        // switch cond.type cond.name, label default_bb.label [
+        //   cond.type case_value0, label case_bb0.label
+        //   cond.type case_value1, label case_bb1.label
+        //   ...
+        // ]
+        // assume cond.type is an integer type
+        u64 num_cases = case_values.len()
+
+        String inst = String.new()
+        inst += "switch "
+        inst += cond.type.name
+        inst += " "
+        inst += cond.name
+        inst += ", label %"
+        inst += default_bb.label
+        inst += " ["
+        for i in 0..num_cases {
+            inst += "\n    "
+            inst += cond.type.name
+            inst += " "
+            inst += case_values[i].to_string()
+            inst += ", label %"
+            inst += case_bbs[i].label
+        }
+        inst += "\n  ]"
+        self.current_block.push(inst)
+
+        // set case_bbs and default_bb as successors of current block
+        for bb in case_bbs {
+            self.current_block.successors.push(bb)
+        }
+        self.current_block.successors.push(default_bb)
+    }
+
+    pub ret_void() {
+        // inst: ret void
+        String inst = String.new()
+        inst += "ret void"
+        self.current_block.push(inst)
+    }
+
+    pub ret(LLValue val) {
+        // inst: ret val.type val.name
+        String inst = String.new()
+        inst += "ret "
+        inst += val.type.name
+        inst += " "
+        inst += val.name
+        self.current_block.push(inst)
+    }
+
+    pub LLValue call(String func_name, LLType ret_ty, Vec<LLValue> args) {
+        // inst: %reg = call ret_ty func_name(arg1.type arg1.name, arg2.type arg2.name, ...)
+        u64 num_args = args.len()
+        String inst = String.new()
+
+    String reg
+        if ret_ty.name != "void" {
+            reg = self.current_func.next_reg()
+            inst += reg
+            inst += " = "
+        }
+
+        inst += "call "
+        inst += ret_ty.name
+        inst += " @"
+        inst += func_name
+        inst += "("
+        for i in 0..num_args {
+            if i > 0 { inst += ", " }
+            inst += args[i].type.name
+            inst += " "
+            inst += args[i].name
+        }
+        inst += ")"
+        self.current_block.push(inst)
+
+        if ret_ty.name != "void" {
+            return LLValue(name=reg, type=ret_ty)
+        } else {
+            // caller should not use the return value if ret_ty is void
+            return LLValue(name=String.from("%dummy"), type=LLType.new("void"))
+        }
+    }
+
+    pub LLValue construct(LLType struct_ty, Vec<LLValue> field_values) {
+        // inst:
+        // %reg0 = insertvalue struct_ty undef, field0.type field0.name, 0
+        // %reg1 = insertvalue struct_ty %reg0, field1.type field1.name, 1
+        // ...
+        // %reg = insertvalue struct_ty %regN-1, fieldN.type fieldN.name, N
+        // assume struct_ty has N fields
+        u64 num_fields = field_values.len()
+        Vec<String> regs = Vec<String>.new()
+        for i in 0..num_fields {
+            regs.push(self.current_func.next_reg())
+        }
+
+        String inst = String.new()
+        inst += regs[0]
+        inst += " = insertvalue "
+        inst += struct_ty.name
+        inst += " undef, "
+        inst += field_values[0].type.name
+        inst += " "
+        inst += field_values[0].name
+        inst += ", 0"
+        self.current_block.push(inst)
+
+        for i in 1..num_fields {
+            inst = String.new()
+            inst += regs[i]
+            inst += " = insertvalue "
+            inst += struct_ty.name
+            inst += " "
+            inst += regs[i - 1]
+            inst += ", "
+            inst += field_values[i].type.name
+            inst += " "
+            inst += field_values[i].name
+            inst += ", "
+            inst += i.to_string()
+            self.current_block.push(inst)
+        }
+
+        return LLValue(name=regs.last().unwrap(), type=struct_ty)
+    }
+
+    pub LLValue extractvalue(LLValue struct_val, u64 field_index, LLType field_ty) {
+        // inst: %reg = extractvalue struct_val.type struct_val.name, field_index
+        String reg = self.current_func.next_reg()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = extractvalue "
+        inst += struct_val.type.name
+        inst += " "
+        inst += struct_val.name
+        inst += ", "
+        inst += field_index.to_string()
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=field_ty)
+    }
+
+    pub LLValue field_ptr(LLValue struct_ptr, u64 field_index, LLType field_ty) {
+        // inst: %reg = getelementptr struct_ptr.type.deref(), struct_ptr.type struct_ptr.name, i64 0, i64 field_index
+        // get pointer to the field at field_index in the struct pointed to by struct_ptr
+        String reg = self.current_func.next_reg()
+        LLType struct_ty = struct_ptr.type.deref()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = getelementptr "
+        inst += struct_ty.name
+        inst += ", "
+        inst += struct_ptr.type.name
+        inst += " "
+        inst += struct_ptr.name
+        inst += ", i64 0, i32 "
+        inst += field_index.to_string()
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=field_ty.to_ptr())
+    }
+
+    pub LLValue offset(LLValue ptr, LLValue index) {
+        // inst: %reg = getelementptr ptr.type.deref(), ptr.type ptr.name, index.type index.name
+        // offset the pointer ptr by index elements
+        String reg = self.current_func.next_reg()
+        LLType pointee_type = ptr.type.deref()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = getelementptr "
+        inst += pointee_type.name
+        inst += ", "
+        inst += ptr.type.name
+        inst += " "
+        inst += ptr.name
+        inst += ", "
+        inst += index.type.name
+        inst += " "
+        inst += index.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=ptr.type)
+    }
+
+    pub LLValue index(LLValue array_ptr, LLValue index) {
+        // inst: %reg = getelementptr array_ptr.type.deref(), array_ptr.type array_ptr.name, i64 0, index.type index.name
+        // get pointer to the element at index in the array pointed to by array_ptr
+        String reg = self.current_func.next_reg()
+        LLType array_type = array_ptr.type.deref()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = getelementptr "
+        inst += array_type.name
+        inst += ", "
+        inst += array_ptr.type.name
+        inst += " "
+        inst += array_ptr.name
+        inst += ", i64 0, "
+        inst += index.type.name
+        inst += " "
+        inst += index.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=array_type.element_type().to_ptr())
+    }
+
+    pub LLValue bitcast_(LLValue val, LLType target_ty) {
+        // inst: %reg = bitcast val.type val.name to target_ty
+        // assume target_ty and val.type is pointer
+        String reg = self.current_func.next_reg()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = bitcast "
+        inst += val.type.name
+        inst += " "
+        inst += val.name
+        inst += " to "
+        inst += target_ty.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=target_ty)
+    }
+
+    pub LLValue malloc(LLValue size) {
+        // inst: %reg = call i8* @malloc(i64 size.name)
+        String reg = self.current_func.next_reg()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = call i8* @malloc(i64 "
+        inst += size.name
+        inst += ")"
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=LLType.new("i8*"))
+    }
+
+    pub free(LLValue ptr) {
+        // inst:
+        // %reg = bitcast ptr.type ptr.name to i8*
+        // call void @free(i8* %reg)
+        String reg = self.current_func.next_reg()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = bitcast "
+        inst += ptr.type.name
+        inst += " "
+        inst += ptr.name
+        inst += " to i8*"
+        self.current_block.push(inst)
+
+        inst = String.new()
+        inst += "call void @free(i8* "
+        inst += reg
+        inst += ")"
+        self.current_block.push(inst)
+    }
+
+    pub LLValue cmp(BinaryOp op, LLValue lhs, LLValue rhs, bool is_signed, bool is_float) {
+        // inst: %reg = icmp eq|ne|slt|ult|sgt|ugt|sle|ule lhs.type lhs.name, rhs.name
+        // inst: %reg = fcmp oeq|one|olt|ogt|ole|oge lhs.type lhs.name, rhs.name
+        String reg = self.current_func.next_reg()
+        str op_str
+        if is_float {
+            match op {
+                Eq { op_str = "oeq " }
+                Neq { op_str = "one " }
+                Lt { op_str = "olt " }
+                Gt { op_str = "ogt " }
+                Leq { op_str = "ole " }
+                Geq { op_str = "oge " }
+                _ { panic("Invalid comparison operator") }
+            }
+        } else {
+            match op {
+                Eq { op_str = "eq " }
+                Neq { op_str = "ne " }
+                Lt {
+                    if is_signed { op_str = "slt " }
+                    else { op_str = "ult " }
+                }
+                Gt {
+                    if is_signed { op_str = "sgt " }
+                    else { op_str = "ugt " }
+                }
+                Leq {
+                    if is_signed { op_str = "sle " }
+                    else { op_str = "ule " }
+                }
+                Geq {
+                    if is_signed { op_str = "sge " }
+                    else { op_str = "uge " }
+                }
+                _ { panic("Invalid comparison operator") }
+            }
+        }
+        str cmp_str
+        if is_float { cmp_str = "fcmp " }
+        else { cmp_str = "icmp " }
+
+        String inst = String.new()
+        inst += reg
+        inst += " = "
+        inst += cmp_str
+        inst += op_str
+        inst += lhs.type.name
+        inst += " "
+        inst += lhs.name
+        inst += ", "
+        inst += rhs.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=LLType.new("i1"))
+    }
+
+    pub LLValue alloca(LLType ty) {
+        // inst: %reg = alloca ty
+        String reg = self.current_func.next_reg()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = alloca "
+        inst += ty.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=ty.to_ptr())
+    }
+
+    pub store(LLValue val, LLValue ptr) {
+        // inst: store val.type val.name, ptr.type ptr.name
+        // assume ptr.type is a pointer type and ptr.type.deref() == val.type
+        String inst = String.new()
+        inst += "store "
+        inst += val.type.name
+        inst += " "
+        inst += val.name
+        inst += ", "
+        inst += ptr.type.name
+        inst += " "
+        inst += ptr.name
+        self.current_block.push(inst)
+    }
+
+    pub LLValue load(LLValue ptr) {
+        // inst: %reg = load derefed_type, ptr.type ptr.name
+        // assume ptr.type is a pointer type
+        String reg = self.current_func.next_reg()
+        LLType derefed_type = ptr.type.deref()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = load "
+        inst += derefed_type.name
+        inst += ", "
+        inst += ptr.type.name
+        inst += " "
+        inst += ptr.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=derefed_type)
+    }
+
+    pub LLValue add(LLValue lhs, LLValue rhs, bool is_float) {
+        // inst: %reg = add lhs.type lhs.name, rhs.name
+        // assume lhs.type == rhs.type
+        String reg = self.current_func.next_reg()
+        str op_str
+        if is_float { op_str = "fadd " }
+        else { op_str = "add " }
+
+        String inst = String.new()
+        inst += reg
+        inst += " = "
+        inst += op_str
+        inst += lhs.type.name
+        inst += " "
+        inst += lhs.name
+        inst += ", "
+        inst += rhs.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=lhs.type)
+    }
+
+    pub LLValue sub(LLValue lhs, LLValue rhs, bool is_float) {
+        // inst: %reg = sub lhs.type lhs.name, rhs.name
+        // assume lhs.type == rhs.type
+        String reg = self.current_func.next_reg()
+        str op_str
+        if is_float { op_str = "fsub " }
+        else { op_str = "sub " }
+
+        String inst = String.new()
+        inst += reg
+        inst += " = "
+        inst += op_str
+        inst += lhs.type.name
+        inst += " "
+        inst += lhs.name
+        inst += ", "
+        inst += rhs.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=lhs.type)
+    }
+
+    pub LLValue mul(LLValue lhs, LLValue rhs, bool is_float) {
+        // inst: %reg = mul lhs.type lhs.name, rhs.name
+        // assume lhs.type == rhs.type
+        String reg = self.current_func.next_reg()
+        str op_str
+        if is_float { op_str = "fmul " }
+        else { op_str = "mul " }
+
+        String inst = String.new()
+        inst += reg
+        inst += " = "
+        inst += op_str
+        inst += lhs.type.name
+        inst += " "
+        inst += lhs.name
+        inst += ", "
+        inst += rhs.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=lhs.type)
+    }
+
+    pub LLValue div(LLValue lhs, LLValue rhs, bool is_signed, bool is_float) {
+        // inst: %reg = sdiv|udiv lhs.type lhs.name, rhs.name
+        // assume lhs.type == rhs.type
+        String reg = self.current_func.next_reg()
+        str op_str
+        if is_float { op_str = "fdiv " }
+        elif is_signed { op_str = "sdiv " }
+        else { op_str = "udiv " }
+
+        String inst = String.new()
+        inst += reg
+        inst += " = "
+        inst += op_str
+        inst += lhs.type.name
+        inst += " "
+        inst += lhs.name
+        inst += ", "
+        inst += rhs.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=lhs.type)
+    }
+
+    pub LLValue rem(LLValue lhs, LLValue rhs, bool is_signed, bool is_float) {
+        // inst: %reg = srem|urem lhs.type lhs.name, rhs.name
+        // assume lhs.type == rhs.type
+        String reg = self.current_func.next_reg()
+        str op_str
+        if is_float { op_str = "frem " }
+        elif is_signed { op_str = "srem " }
+        else { op_str = "urem " }
+
+        String inst = String.new()
+        inst += reg
+        inst += " = "
+        inst += op_str
+        inst += lhs.type.name
+        inst += " "
+        inst += lhs.name
+        inst += ", "
+        inst += rhs.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=lhs.type)
+    }
+
+    pub LLValue bitwise(BinaryOp op, LLValue lhs, LLValue rhs) {
+        // inst: %reg = and|or|xor lhs.type lhs.name, rhs.name
+        // assume lhs.type == rhs.type
+        String reg = self.current_func.next_reg()
+        str op_str
+        match op {
+            BitAnd { op_str = "and " }
+            BitOr { op_str = "or " }
+            BitXor { op_str = "xor " }
+            _ { panic("Invalid bitwise operator") }
+        }
+
+        String inst = String.new()
+        inst += reg
+        inst += " = "
+        inst += op_str
+        inst += lhs.type.name
+        inst += " "
+        inst += lhs.name
+        inst += ", "
+        inst += rhs.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=lhs.type)
+    }
+
+    pub LLValue bitwise_not(LLValue operand) {
+        // inst: %reg = xor operand.type operand.name, -1
+        String reg = self.current_func.next_reg()
+
+        String inst = String.new()
+        inst += reg
+        inst += " = xor "
+        inst += operand.type.name
+        inst += " "
+        inst += operand.name
+        inst += ", -1"
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=operand.type)
+    }
+
+    pub LLValue shift(BinaryOp op, LLValue lhs, LLValue rhs, bool is_signed) {
+        // inst: %reg = shl|lshr|ashr lhs.type lhs.name, rhs.name
+        // assume lhs.type == rhs.type
+        String reg = self.current_func.next_reg()
+        str op_str
+        if op == BinaryOp.Shl { op_str = "shl " }
+        elif is_signed { op_str = "ashr " }
+        else { op_str = "lshr " }
+
+        String inst = String.new()
+        inst += reg
+        inst += " = "
+        inst += op_str
+        inst += lhs.type.name
+        inst += " "
+        inst += lhs.name
+        inst += ", "
+        inst += rhs.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=lhs.type)
+    }
+
+    pub LLValue neg(LLValue operand, bool is_float) {
+        // inst: %reg = sub operand.type 0, operand.name
+        String reg = self.current_func.next_reg()
+        str op_str
+        if is_float { op_str = "fsub " }
+        else { op_str = "sub " }
+
+        String inst = String.new()
+        inst += reg
+        inst += " = "
+        inst += op_str
+        inst += operand.type.name
+        inst += " 0, "
+        inst += operand.name
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=operand.type)
+    }
+
+    pub LLValue ptr_diff(LLValue lhs, LLValue rhs, u64 elem_size) {
+        // inst:
+        // %reg0 = ptrtoint lhs.type lhs.name to i64
+        // %reg1 = ptrtoint rhs.type rhs.name to i64
+        // %reg2 = sub i64 %reg0, %reg1
+        // %reg = sdiv i64 %reg2, elem_size
+        String reg0 = self.current_func.next_reg()
+        String reg1 = self.current_func.next_reg()
+        String reg2 = self.current_func.next_reg()
+        String reg = self.current_func.next_reg()
+
+        String inst = String.new()
+        inst += reg0
+        inst += " = ptrtoint "
+        inst += lhs.type.name
+        inst += " "
+        inst += lhs.name
+        inst += " to i64"
+        self.current_block.push(inst)
+
+        inst = String.new()
+        inst += reg1
+        inst += " = ptrtoint "
+        inst += rhs.type.name
+        inst += " "
+        inst += rhs.name
+        inst += " to i64"
+        self.current_block.push(inst)
+
+        inst = String.new()
+        inst += reg2
+        inst += " = sub i64 "
+        inst += reg0
+        inst += ", "
+        inst += reg1
+        self.current_block.push(inst)
+
+        inst = String.new()
+        inst += reg
+        inst += " = sdiv i64 "
+        inst += reg2
+        inst += ", "
+        inst += elem_size.to_string()
+        self.current_block.push(inst)
+
+        return LLValue(name=reg, type=LLType.new("i64"))
+    }
+}

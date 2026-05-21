@@ -1,0 +1,976 @@
+from std.core.string import String
+from std.core.vec import Vec
+from std.core.option import Option
+from std.collections.hash_map import HashMap
+from std.collections.hash_set import HashSet
+
+from ast import Pattern
+from expr import Literal, BinaryOp, UnaryOp
+from sema import HIRProgram
+from symbol import SymbolCtx, Symbol
+from type import TypeCtx, Type, StructType, StructField, EnumVariant, FunctionType
+from hir import HProgram, HFuncDef, HExpr, HStmt
+from llvm import LLType, LLModule, LLValue, LLBuilder, LLFunction, LLBasicBlock
+
+pub struct Translator {
+    SymbolCtx symbol_ctx
+    TypeCtx type_ctx
+    HProgram hir
+
+    LLModule module
+    HashMap<u64, LLType> type_map
+    HashMap<u64, u64> type_size_map
+    HashMap<u64, u64> type_alignment_map
+    HashMap<u64, LLValue> var_map
+    Vec<LLBasicBlock*> break_targets
+    Vec<LLBasicBlock*> continue_targets
+}
+
+impl Translator {
+    pub static Self new(HIRProgram sema_hir) {
+        return Self(
+            symbol_ctx=sema_hir.symbol_ctx,
+            type_ctx=sema_hir.type_ctx,
+            hir=sema_hir.program,
+            module=LLModule.new(),
+            type_map=HashMap<u64, LLType>.new(),
+            type_size_map=HashMap<u64, u64>.new(),
+            type_alignment_map=HashMap<u64, u64>.new(),
+            var_map=HashMap<u64, LLValue>.new(),
+            break_targets=Vec<LLBasicBlock*>.new(),
+            continue_targets=Vec<LLBasicBlock*>.new()
+        )
+    }
+
+    // 主函数
+    pub translate() {
+        // 1. lower types
+        self.lower_types()
+
+        // 2. translate functions
+        for func in self.hir.funcs {
+            self.translate_func(&func)
+        }
+    }
+
+    // 导出为 LLVM IR
+    pub String export() {
+        return self.module.export()
+    }
+
+    translate_func(HFuncDef* func) {
+        // translate return type
+        FunctionType func_ty = self.type_ctx.get_type(func.type_id).kind.as_function()
+        u64 return_type_id = func_ty.return_type_id
+        LLType ret_ty = self.type_map[return_type_id]
+
+        // translate parameters
+        Vec<(LLType, String)> ll_params = Vec<(LLType, String)>.new()
+        for param in func_ty.params {
+            LLType param_ty = self.type_map[param.type_id]
+            (LLType, String) param_info = (param_ty, param.name.clone())
+            ll_params.push(param_info)
+        }
+
+        LLFunction ll_func = LLFunction.new(func_ty.name, ret_ty, ll_params)
+        
+        LLBuilder builder = LLBuilder.new(&ll_func)
+
+        self.alloca_locals(func, &builder)
+
+        // store parameters to local variables
+        for i in 0..func_ty.params.len() {
+            String param_name = String.from("%") + func_ty.params[i].name
+            LLType param_ty = ll_params[i][0]
+            LLValue arg_val = LLValue(name=param_name, type=param_ty)
+            
+            u64 param_sym_id = func.local_vars[i] // Nth parameter corresponds to Nth local variable
+            LLValue ptr = self.var_map[param_sym_id]
+            
+            builder.store(arg_val, ptr)
+        }
+
+        for stmt in func.body {
+            self.translate_stmt(&stmt, &builder)
+        }
+
+        self.module.funcs.push(ll_func)
+    }
+
+    alloca_locals(HFuncDef* func, LLBuilder* builder) {
+        for symbol_id in func.local_vars {
+            Symbol* sym = self.symbol_ctx.get_symbol(symbol_id)
+            LLType ty = self.type_map[sym.type_id]
+
+            LLValue ptr = builder.alloca(ty)
+
+            self.var_map.insert(symbol_id, ptr)
+        }
+    }
+
+    lower_types() {
+        HashSet<u64> visited = HashSet<u64>.new()
+        for type_id in self.type_ctx.types {
+            self.lower_type(type_id, &visited)
+        }
+    }
+
+    lower_type(u64 type_id, HashSet<u64>* visited) {
+        if visited.contains(type_id) {
+            return
+        }
+        visited.insert(type_id)
+
+        Type* ty = self.type_ctx.get_type(type_id)
+        match ty.kind {
+            Char { self.type_map.insert(type_id, LLType.new("i8")) }
+            Bool { self.type_map.insert(type_id, LLType.new("i1")) }
+            Str { self.type_map.insert(type_id, LLType.new("{ i8*, i64 }")) }
+            Void { self.type_map.insert(type_id, LLType.new("void")) }
+            Int as _i {
+                u64 bits = _i.i.size * 8
+                String name = String.from("i")
+                name += bits.to_string()
+                self.type_map.insert(type_id, LLType(name=name))
+            }
+            Float as _f {
+                match _f.f.size {
+                    4 { self.type_map.insert(type_id, LLType.new("float")) }
+                    8 { self.type_map.insert(type_id, LLType.new("double")) }
+                    _ { panic("Unsupported float size") }
+                }
+            }
+            Array as arr {
+                u64 elem_id = arr.a.element_type_id
+                self.lower_type(elem_id, visited)
+                LLType elem_ty = self.type_map[elem_id]
+                String name = String.new()
+                name += "["
+                name += arr.a.length.to_string()
+                name += " x "
+                name += elem_ty.name
+                name += "]"
+                self.type_map.insert(type_id, LLType(name=name))
+            }
+            Pointer as ptr {
+                u64 pointee_id = ptr.p.pointee_type_id
+                self.lower_type(pointee_id, visited)
+                LLType pointee_ty = self.type_map[pointee_id]
+                self.type_map.insert(type_id, pointee_ty.to_ptr())
+            }
+            Struct as _s {
+                StructType s = _s.s
+
+                // insert placeholder first to handle recursive types
+                String name = String.from("%struct.") + s.name
+                self.type_map.insert(type_id, LLType(name=name))
+
+                // declare struct in global scope
+                String decl = String.new()
+                decl += name
+                decl += " = type { "
+                for i in 0..s.fields.len() {
+                    if i != 0 {
+                        decl += ", "
+                    }
+                    u64 field_id = s.fields[i].type_id
+                    self.lower_type(field_id, visited)
+                    decl += self.type_map[field_id].name
+                }
+                decl += " }"
+                self.module.type_decls.push(decl)
+            }
+            Enum { self.type_map.insert(type_id, LLType.new("i32")) }
+            _ {}  // skip function types
+        }
+    }
+
+    u64 get_type_size(u64 type_id) {
+        // get size in bytes of the type
+        if self.type_size_map.contains(type_id) {
+            return self.type_size_map[type_id]
+        }
+        u64 size
+        Type* ty = self.type_ctx.get_type(type_id)
+        match ty.kind {
+            Char { size = 1 }
+            Bool { size = 1 }
+            Str { size = 16 } // { i8*, i64 }
+            Void { size = 0 }
+            Int as _i { size = _i.i.size }
+            Float as _f { size = _f.f.size }
+            Array as arr {
+                u64 elem_size = self.get_type_size(arr.a.element_type_id)
+                size = elem_size * arr.a.length
+            }
+            Pointer { size = 8 }
+            Struct as _s {
+                Vec<u64> field_type_ids = Vec<u64>.new()
+                for field in _s.s.fields {
+                    field_type_ids.push(field.type_id)
+                }
+                size = self.calculate_struct_size(field_type_ids)
+            }
+            Enum { size = 4 }
+            Function { panic("Cannot get size of function type") }
+        }
+        self.type_size_map.insert(type_id, size)
+
+        return size
+    }
+
+    u64 get_type_alignment(u64 type_id) {
+        // get alignment in bytes of the type
+        if self.type_alignment_map.contains(type_id) {
+            return self.type_alignment_map[type_id]
+        }
+        u64 alignment
+        Type* ty = self.type_ctx.get_type(type_id)
+        match ty.kind {
+            Char { alignment = 1 }
+            Bool { alignment = 1 }
+            Str { alignment = 8 } // { i8*, i64 }
+            Void { alignment = 1 }
+            Int as _i { alignment = _i.i.size }
+            Float as _f { alignment = _f.f.size }
+            Array as arr {
+                alignment = self.get_type_alignment(arr.a.element_type_id)
+            }
+            Pointer { alignment = 8 }
+            Struct as _s {
+                u64 max_field_alignment = 1
+                for field in _s.s.fields {
+                    u64 field_alignment = self.get_type_alignment(field.type_id)
+                    if field_alignment > max_field_alignment {
+                        max_field_alignment = field_alignment
+                    }
+                }
+                alignment = max_field_alignment
+            }
+            Enum { alignment = 4 }
+            Function { panic("Cannot get alignment of function type") }
+        }
+
+        self.type_alignment_map.insert(type_id, alignment)
+        return alignment
+    }
+
+    u64 calculate_struct_size(Vec<u64> field_type_ids) {
+        // calculate size of struct with given field sizes, considering alignment and padding
+        u64 offset = 0
+        u64 max_alignment = 1
+
+        for type_id in field_type_ids {
+            u64 field_size = self.get_type_size(type_id)
+            u64 field_alignment = self.get_type_alignment(type_id)
+            if field_alignment > max_alignment {
+                max_alignment = field_alignment
+            }
+            // Align offset
+            offset.align_up(field_alignment)
+            offset += field_size
+        }
+        // Align final size
+        offset.align_up(max_alignment)
+        return offset
+    }
+
+    translate_stmt(HStmt* stmt, LLBuilder* builder) {
+        match *stmt {
+            ExprStmt as e { self.translate_expr_stmt(&e.expr, builder) }
+            Delete as d { self.translate_delete(&d.target, builder) }
+            Return as r { self.translate_return(&r.value, builder) }
+            If as i { self.translate_if(&i.condition, &i.then_branch, &i.else_branch, builder) }
+            Loop as l { self.translate_loop(&l.body, builder) }
+            Match as m { self.translate_match(&m.value, &m.arms, builder) }
+            Break { self.translate_break(builder) }
+            Continue { self.translate_continue(builder) }
+        }
+    }
+
+    translate_expr_stmt(HExpr* expr, LLBuilder* builder) {
+        self.translate_expr_value(expr, builder)
+    }
+
+    translate_delete(HExpr* target, LLBuilder* builder) {
+        LLValue ptr = self.translate_expr_value(target, builder)
+        builder.free(ptr)
+    }
+
+    translate_return(Option<HExpr>* value, LLBuilder* builder) {
+        if value.is_some() {
+            LLValue ret_val = self.translate_expr_value(&value.unwrap(), builder)
+            builder.ret(ret_val)
+        } else {
+            builder.ret_void()
+        }
+    }
+
+    translate_if(HExpr* condition, Vec<HStmt>* then_branch, Option<Vec<HStmt>>* else_branch, LLBuilder* builder) {
+        // TODO: translate if into BasicBlocks with conditional branching.
+        // Hint: compute condition value first, then create then/else/merge blocks.
+        // Hint: use cond_br to branch from current block to then/else.
+        // Hint: both then and else branches should end with br to merge.
+        // Hint: when else is absent, false branch can jump directly to merge.
+    }
+
+    translate_loop(Vec<HStmt>* body, LLBuilder* builder) {
+        LLBasicBlock* loop_cond = builder.create_block()
+        LLBasicBlock* loop_body = builder.create_block()
+        LLBasicBlock* loop_end = builder.create_block()
+        
+        builder.br(loop_cond)
+        
+        builder.set_insert_point(loop_cond)
+        builder.br(loop_body)
+        
+        self.break_targets.push(loop_end)
+        self.continue_targets.push(loop_cond)
+        
+        builder.set_insert_point(loop_body)
+        for s in *body { self.translate_stmt(&s, builder) }
+        builder.br(loop_cond)
+        
+        self.break_targets.pop()
+        self.continue_targets.pop()
+        
+        builder.set_insert_point(loop_end)
+    }
+
+    translate_match(HExpr* value, Vec<(Pattern, Vec<HStmt>)>* arms, LLBuilder* builder) {
+        LLValue match_val = self.translate_expr_value(value, builder)
+        LLBasicBlock* current_bb = builder.current_block
+
+        Vec<i64> case_values = Vec<i64>.new()
+        Vec<LLBasicBlock*> case_bbs = Vec<LLBasicBlock*>.new()
+        LLBasicBlock* end_bb = builder.create_block()
+        LLBasicBlock* default_bb = end_bb
+
+        for arm in *arms {
+            Pattern pat = arm[0]
+            Vec<HStmt> stmts = arm[1]
+
+            LLBasicBlock* case_bb = builder.create_block()
+            match pat {
+                Wildcard { default_bb = case_bb }
+                Int as i {
+                    case_values.push(i.value)
+                    case_bbs.push(case_bb)
+                }
+                Char as c {
+                    case_values.push(i64(c.value))
+                    case_bbs.push(case_bb)
+                }
+                Ident as id {
+                    Type* enum_type = self.type_ctx.get_type(value.type_id)
+                    u64 discriminant = enum_type.kind.as_enum().get_variant_discriminant(id.name)
+                    case_values.push(i64(discriminant))
+                    case_bbs.push(case_bb)
+                }
+            }
+
+            builder.set_insert_point(case_bb)
+            for s in stmts {
+                self.translate_stmt(&s, builder)
+            }
+            builder.br(end_bb)
+        }
+
+        if default_bb == end_bb {
+            // create an explicit unreachable default block to preserve ordering
+            default_bb = builder.create_block()
+            builder.set_insert_point(default_bb)
+            builder.unreachable()
+        }
+
+        builder.set_insert_point(current_bb)
+        builder.switch(match_val, case_values, case_bbs, default_bb)
+
+        builder.set_insert_point(end_bb)
+    }
+
+    translate_break(LLBuilder* builder) {
+        LLBasicBlock* target = self.break_targets.last().unwrap()
+        builder.br(target)
+    }
+
+    translate_continue(LLBuilder* builder) {
+        LLBasicBlock* target = self.continue_targets.last().unwrap()
+        builder.br(target)
+    }
+
+    // 获取表达式的值
+    LLValue translate_expr_value(HExpr* expr, LLBuilder* builder) {
+        match expr.kind {
+            Lit as l { return self.translate_literal(&l.lit, expr.type_id, builder) }
+            Var as v {
+                LLValue ptr = self.var_map[v.var_symbol_id]
+                return builder.load(ptr)
+            }
+            Binary as b { return self.translate_binary_value(b.op, b.left, b.right, builder) }
+            Unary as u { return self.translate_unary_value(u.op, u.operand, builder) }
+            Call as c { return self.translate_call(c.func_symbol_id, &c.args, builder) }
+            Construct as c { return self.translate_construct(c.struct_type_id, &c.field_values, builder) }
+            FieldAccess as f { return self.translate_field_access_value(f.base, f.field, builder) }
+            VariantAccess as v { return self.translate_variant_access(v.enum_type_id, v.variant, builder) }
+            Dyn as d { return self.translate_dyn(expr.type_id, d.array_size, builder) }
+        }
+    }
+
+    // 获取左值表达式的地址
+    LLValue translate_expr_lvalue(HExpr* expr, LLBuilder* builder) {
+        match expr.kind {
+            Var as v { return self.var_map[v.var_symbol_id] }
+            Binary as b { return self.translate_binary_lvalue(b.op, b.left, b.right, builder) }
+            Unary as u { return self.translate_unary_lvalue(u.op, u.operand, builder) }
+            FieldAccess as f { return self.translate_field_access_lvalue(f.base, f.field, builder) }
+            _ { panic("Expression is not an lvalue") }
+        }
+    }
+
+    LLValue translate_literal(Literal* lit, u64 type_id, LLBuilder* builder) {
+        match *lit {
+            Int as i {
+                LLType ty = self.type_map[type_id]
+                // return LLValue(name=i.value.to_string(), type=ty)
+                match type_id {
+                    9 { return LLValue(name=f32(i.value).to_hex_string(), type=ty) }
+                    10 { return LLValue(name=f64(i.value).to_hex_string(), type=ty) }
+                    _ { return LLValue(name=i.value.to_string(), type=ty) }
+                }
+            }
+            Float as f {
+                LLType ty = self.type_map[type_id]
+                match type_id {
+                    9 { return LLValue(name=f32(f.value).to_hex_string(), type=ty) }
+                    10 { return LLValue(name=f64(f.value).to_hex_string(), type=ty) }
+                    _ { panic("Unsupported float type") }
+                }
+            }
+            Char as c {
+                LLType ty = self.type_map[type_id]
+                return LLValue(name=(u32(c.value)).to_string(), type=ty)
+            }
+            Str as s {
+                LLValue global_str = self.module.get_global_string(s.value)
+                LLType slice_ty = self.type_map[type_id]
+
+                // use getelementptr to get pointer to the first character
+                LLValue str_ptr = builder.index(global_str, builder.int_const(0, 64))
+                LLValue str_len = builder.int_const(s.value.len(), 64)
+
+                // construct the slice struct { i8*, i64 }
+                Vec<LLValue> field_values = Vec<LLValue>.new()
+                field_values.push(str_ptr)
+                field_values.push(str_len)
+                return builder.construct(slice_ty, field_values)
+            }
+            Bool as b {
+                LLType ty = self.type_map[type_id]
+                if b.value {
+                    return LLValue(name=String.from("1"), type=ty)
+                } else {
+                    return LLValue(name=String.from("0"), type=ty)
+                }
+            }
+            Array as a {
+                LLType ty = self.type_map[type_id]
+                Type* arr_ty = self.type_ctx.get_type(type_id)
+                u64 elem_type_id = arr_ty.kind.as_array().element_type_id
+            
+                Vec<LLValue> elem_values = Vec<LLValue>.new()
+                for elem in a.elements {
+                    elem_values.push(self.translate_literal(&elem, elem_type_id, builder))
+                }
+                
+                String name = String.new()
+                name += "["
+                for i in 0..elem_values.len() {
+                    if i != 0 {
+                        name += ", "
+                    }
+                    name += elem_values[i].type.name
+                    name += " "
+                    name += elem_values[i].name
+                }
+                name += "]"
+                return LLValue(name=name, type=ty)
+            }
+        }
+    }
+
+    LLValue translate_binary_value(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
+        match op {
+            Index { return self.translate_index_value(left, right, builder) }
+            Add, Sub, Mul, Div, Mod { return self.translate_arithmetic(op, left, right, builder) }
+            Eq, Neq, Lt, Gt, Leq, Geq { return self.translate_cmp(op, left, right, builder) }
+            BitAnd, BitOr, BitXor { return self.translate_bitwise(op, left, right, builder) }
+            Shl, Shr { return self.translate_shift(op, left, right, builder) }
+            LogicAnd, LogicOr { return self.translate_logic(op, left, right, builder) }
+            Assign { return self.translate_assign(left, right, builder) }
+            AddAssign, SubAssign, MulAssign, DivAssign, ModAssign { return self.translate_arithmetic_assign(op, left, right, builder) }
+            BitAndAssign, BitOrAssign, BitXorAssign { return self.translate_bitwise_assign(op, left, right, builder) }
+            ShlAssign, ShrAssign { return self.translate_shift_assign(op, left, right, builder) }
+        }
+    }
+
+    LLValue translate_unary_value(UnaryOp op, HExpr* operand, LLBuilder* builder) {
+        match op {
+            Deref { return self.translate_deref_value(operand, builder) }
+            AddrOf { return self.translate_addr_of(operand, builder) }
+            Neg { return self.translate_neg(operand, builder) }
+            BitNot, LogicNot { return self.translate_not(operand, builder) }  // bitwise not and logical not can be handled similarly
+        }
+    }
+
+    LLValue translate_call(u64 func_symbol_id, Vec<HExpr>* args, LLBuilder* builder) {
+        Symbol* sym = self.symbol_ctx.get_symbol(func_symbol_id)
+        u64 return_type_id = self.type_ctx.get_type(sym.type_id).kind.as_function().return_type_id
+        LLType ret_ty = self.type_map[return_type_id]
+
+        Vec<LLValue> ll_args = Vec<LLValue>.new()
+        for arg in *args {
+            ll_args.push(self.translate_expr_value(&arg, builder))
+        }
+
+        return builder.call(sym.name.clone(), ret_ty, ll_args)
+    }
+
+    LLValue translate_construct(u64 struct_type_id, Vec<HExpr>* field_values, LLBuilder* builder) {
+        LLType struct_ty = self.type_map[struct_type_id]
+        Vec<LLValue> ll_field_values = Vec<LLValue>.new()
+        for field in *field_values {
+            ll_field_values.push(self.translate_expr_value(&field, builder))
+        }
+        return builder.construct(struct_ty, ll_field_values)
+    }
+
+    LLValue translate_field_access_value(HExpr* base, StructField field, LLBuilder* builder) {
+        // 1. base is lvalue: get pointer to the field, then load
+        // 2. base is rvalue: extract the field value directly
+        if base.is_lvalue {
+            LLValue ptr = self.translate_field_access_lvalue(base, field, builder)
+            return builder.load(ptr)
+        } else {
+            LLValue base_val = self.translate_expr_value(base, builder)
+            LLType field_ty = self.type_map[field.type_id]
+            return builder.extractvalue(base_val, field.index, field_ty)
+        }
+    }
+
+    LLValue translate_variant_access(u64 enum_type_id, EnumVariant variant, LLBuilder* builder) {
+        return builder.int_const(variant.discriminant, 32)
+    }
+
+    LLValue translate_dyn(u64 type_id, Option<HExpr*> array_size, LLBuilder* builder) {
+        // TODO: lower dyn allocation to malloc + cast.
+        // Hint: get target type from type_map and base element size from get_type_size.
+        // Hint: if array_size exists, evaluate element count and multiply into total bytes.
+        // Hint: call builder.malloc(total_size) then bitcast raw pointer to target pointer type.
+    }
+
+    LLValue translate_binary_lvalue(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
+        match op {
+            Index { return self.translate_index_lvalue(left, right, builder) }
+            _ { panic("Binary operator is not valid for lvalue") }
+        }
+    }
+
+    LLValue translate_unary_lvalue(UnaryOp op, HExpr* operand, LLBuilder* builder) {
+        match op {
+            Deref { return self.translate_deref_lvalue(operand, builder) }
+            _ { panic("Unary operator is not valid for lvalue") }
+        }
+    }
+
+    LLValue translate_field_access_lvalue(HExpr* base, StructField field, LLBuilder* builder) {
+        LLValue base_ptr = self.translate_expr_lvalue(base, builder)
+        LLType field_ty = self.type_map[field.type_id]
+        return builder.field_ptr(base_ptr, field.index, field_ty)
+    }
+
+    LLValue translate_index_value(HExpr* left, HExpr* right, LLBuilder* builder) {
+        // 1. left is lvalue: call translate_index_lvalue to get pointer to the element, then load
+        // 2. left is rvalue array: store the array to a temporary alloca, then get pointer to the element, then load
+        // 3. left is rvalue pointer: offset the pointer by index
+        if left.is_lvalue {
+            LLValue elem_ptr = self.translate_index_lvalue(left, right, builder)
+            return builder.load(elem_ptr)
+        } else {
+            Type* left_ty = self.type_ctx.get_type(left.type_id)
+            LLValue index_val = self.translate_expr_value(right, builder)
+            if left_ty.kind.is_pointer() {
+                LLValue ptr_val = self.translate_expr_value(left, builder)
+                LLValue elem_ptr = builder.offset(ptr_val, index_val)
+                return builder.load(elem_ptr)
+            } elif left_ty.kind.is_array() {
+                LLValue arr_val = self.translate_expr_value(left, builder)
+                LLValue arr_ptr = builder.alloca(arr_val.type)
+                builder.store(arr_val, arr_ptr)
+                LLValue elem_ptr = builder.index(arr_ptr, index_val)
+                return builder.load(elem_ptr)
+            } else {
+                panic("Left operand of index expression must be an array or a pointer")
+            }
+        }
+    }
+
+    LLValue translate_arithmetic(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
+        // +, -, *, /, %
+        match op {
+            Add { return self.translate_add(left, right, builder) }
+            Sub { return self.translate_sub(left, right, builder) }
+            Mul { return self.translate_mul(left, right, builder) }
+            Div { return self.translate_div(left, right, builder) }
+            Mod { return self.translate_mod(left, right, builder) }
+            _ { panic("Not an arithmetic operator") }
+        }
+    }
+
+    LLValue translate_cmp(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
+        // ==, !=, <, >, <=, >=
+        bool is_signed = false
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+        if left_ty.kind.is_integer() {
+            is_signed = left_ty.kind.as_int().is_signed
+        }
+        bool is_float = left_ty.kind.is_float()
+
+        LLValue left_val = self.translate_expr_value(left, builder)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        return builder.cmp(op, left_val, right_val, is_signed, is_float)
+    }
+
+    LLValue translate_bitwise(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
+        // &, |, ^
+        LLValue left_val = self.translate_expr_value(left, builder)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        return builder.bitwise(op, left_val, right_val)
+    }
+
+    LLValue translate_shift(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
+        // <<, >>
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+
+        bool is_signed = false
+        if left_ty.kind.is_integer() {
+            is_signed = left_ty.kind.as_int().is_signed
+        }
+
+        LLValue left_val = self.translate_expr_value(left, builder)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        return builder.shift(op, left_val, right_val, is_signed)
+    }
+
+    LLValue translate_logic(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
+        // and, or with short-circuiting
+        match op {
+            LogicAnd { return self.translate_logic_and(left, right, builder) }
+            LogicOr { return self.translate_logic_or(left, right, builder) }
+            _ { panic("Not a logical operator") }
+        }
+    }
+
+    LLValue translate_assign(HExpr* left, HExpr* right, LLBuilder* builder) {
+        // TODO: implement assignment evaluation and store.
+        // Hint: evaluate right expression first.
+        // Hint: compute lvalue address for left expression.
+        // Hint: store right value into left address and return the assigned value.
+    }
+
+    LLValue translate_arithmetic_assign(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
+        // +=, -=, *=, /=, %=
+        match op {
+            AddAssign { return self.translate_add_assign(left, right, builder) }
+            SubAssign { return self.translate_sub_assign(left, right, builder) }
+            MulAssign { return self.translate_mul_assign(left, right, builder) }
+            DivAssign { return self.translate_div_assign(left, right, builder) }
+            ModAssign { return self.translate_mod_assign(left, right, builder) }
+            _ { panic("Not an arithmetic assignment operator") }
+        }
+    }
+
+    LLValue translate_bitwise_assign(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
+        // &=, |=, ^=
+        BinaryOp arith_op
+        match op {
+            BitAndAssign { arith_op = BinaryOp.BitAnd }
+            BitOrAssign { arith_op = BinaryOp.BitOr }
+            BitXorAssign { arith_op = BinaryOp.BitXor }
+            _ { panic("Not a bitwise assignment operator") }
+        }
+
+        LLValue left_ptr = self.translate_expr_lvalue(left, builder)
+        LLValue left_val = builder.load(left_ptr)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        LLValue result = builder.bitwise(arith_op, left_val, right_val)
+        builder.store(result, left_ptr)
+        return result
+    }
+
+    LLValue translate_shift_assign(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
+        // <<=, >>=
+        BinaryOp shift_op
+        match op {
+            ShlAssign { shift_op = BinaryOp.Shl }
+            ShrAssign { shift_op = BinaryOp.Shr }
+            _ { panic("Not a shift assignment operator") }
+        }
+
+        bool is_signed = false
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+        if left_ty.kind.is_integer() {
+            is_signed = left_ty.kind.as_int().is_signed
+        }
+
+        LLValue left_ptr = self.translate_expr_lvalue(left, builder)
+        LLValue left_val = builder.load(left_ptr)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        LLValue result = builder.shift(shift_op, left_val, right_val, is_signed)
+        builder.store(result, left_ptr)
+        return result
+    }
+
+    LLValue translate_deref_value(HExpr* operand, LLBuilder* builder) {
+        // *
+        LLValue ptr_val = self.translate_expr_value(operand, builder)
+        return builder.load(ptr_val)
+    }
+
+    LLValue translate_addr_of(HExpr* operand, LLBuilder* builder) {
+        // &
+        LLValue ptr_val = self.translate_expr_lvalue(operand, builder)
+        return ptr_val
+    }
+
+    LLValue translate_neg(HExpr* operand, LLBuilder* builder) {
+        // -
+        LLValue val = self.translate_expr_value(operand, builder)
+        bool is_float = self.type_ctx.get_type(operand.type_id).kind.is_float()
+        return builder.neg(val, is_float)
+    }
+
+    LLValue translate_not(HExpr* operand, LLBuilder* builder) {
+        // not, ~
+        LLValue val = self.translate_expr_value(operand, builder)
+        return builder.bitwise_not(val)
+    }
+
+    LLValue translate_index_lvalue(HExpr* left, HExpr* right, LLBuilder* builder) {
+        // TODO: compute lvalue address for index operation.
+        // Hint: evaluate index expression once.
+        // Hint: if left is pointer, evaluate pointer value then use builder.offset.
+        // Hint: if left is array, compute array lvalue address then use builder.index.
+        // Hint: panic for unsupported left operand kinds.
+    }
+
+    LLValue translate_deref_lvalue(HExpr* operand, LLBuilder* builder) {
+        // *
+        return self.translate_expr_value(operand, builder)
+    }
+
+    LLValue translate_add(HExpr* left, HExpr* right, LLBuilder* builder) {
+        // TODO: implement add for pointer arithmetic and numeric addition.
+        // Hint: inspect both operand types from type_ctx.
+        // Hint: pointer + int and int + pointer should both lower to builder.offset.
+        // Hint: for non-pointer cases, evaluate both sides and call builder.add.
+        // Hint: pass is_float=true for floating-point addition.
+    }
+
+    LLValue translate_sub(HExpr* left, HExpr* right, LLBuilder* builder) {
+        // 1. pointer - integer: offset the pointer by negative integer
+        // 2. pointer - pointer: get the difference of the two pointers divided by element size
+        // 3. other cases: normal integer/float subtraction
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+        Type* right_ty = self.type_ctx.get_type(right.type_id)
+
+        if left_ty.kind.is_pointer() {
+            if right_ty.kind.is_integer() {
+                LLValue ptr_val = self.translate_expr_value(left, builder)
+                LLValue int_val = self.translate_expr_value(right, builder)
+                LLValue neg_int_val = builder.neg(int_val, false)
+                return builder.offset(ptr_val, neg_int_val)
+            } else {
+                LLValue left_ptr = self.translate_expr_value(left, builder)
+                LLValue right_ptr = self.translate_expr_value(right, builder)
+                u64 elem_size = self.get_type_size(left_ty.kind.as_pointer().pointee_type_id)
+                return builder.ptr_diff(left_ptr, right_ptr, elem_size)
+            }
+        } else {
+            LLValue left_val = self.translate_expr_value(left, builder)
+            LLValue right_val = self.translate_expr_value(right, builder)
+
+            bool is_float = left_ty.kind.is_float()
+
+            return builder.sub(left_val, right_val, is_float)
+        }
+    }
+
+    LLValue translate_mul(HExpr* left, HExpr* right, LLBuilder* builder) {
+        LLValue left_val = self.translate_expr_value(left, builder)
+        LLValue right_val = self.translate_expr_value(right, builder)
+
+        bool is_float = self.type_ctx.get_type(left.type_id).kind.is_float()
+
+        return builder.mul(left_val, right_val, is_float)
+    }
+
+    LLValue translate_div(HExpr* left, HExpr* right, LLBuilder* builder) {
+        LLValue left_val = self.translate_expr_value(left, builder)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+        bool is_signed = true
+        if left_ty.kind.is_integer() {
+            is_signed = left_ty.kind.as_int().is_signed
+        }
+        bool is_float = left_ty.kind.is_float()
+        return builder.div(left_val, right_val, is_signed, is_float)
+    }
+
+    LLValue translate_mod(HExpr* left, HExpr* right, LLBuilder* builder) {
+        LLValue left_val = self.translate_expr_value(left, builder)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+        bool is_signed = true
+        if left_ty.kind.is_integer() {
+            is_signed = left_ty.kind.as_int().is_signed
+        }
+        bool is_float = left_ty.kind.is_float()
+        return builder.rem(left_val, right_val, is_signed, is_float)
+    }
+
+    LLValue translate_logic_and(HExpr* left, HExpr* right, LLBuilder* builder) {
+        // lhs short-circuits the rhs: false goes directly to merge, true evaluates rhs.
+        LLBasicBlock* rhs_bb = builder.create_block()
+        LLBasicBlock* merge_bb = builder.create_block()
+
+        LLValue left_val = self.translate_expr_value(left, builder)
+        LLBasicBlock* lhs_bb = builder.current_block
+        builder.cond_br(left_val, rhs_bb, merge_bb)
+
+        builder.set_insert_point(rhs_bb)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        builder.br(merge_bb)
+
+        builder.set_insert_point(merge_bb)
+        Vec<LLValue> incoming_values = Vec<LLValue>.new()
+        Vec<LLBasicBlock*> incoming_blocks = Vec<LLBasicBlock*>.new()
+        incoming_values.push(builder.int_const(0, 1))
+        incoming_blocks.push(lhs_bb)
+        incoming_values.push(right_val)
+        incoming_blocks.push(rhs_bb)
+
+        return builder.phi(LLType.new("i1"), incoming_values, incoming_blocks)
+    }
+
+    LLValue translate_logic_or(HExpr* left, HExpr* right, LLBuilder* builder) {
+        // lhs short-circuits the rhs: true goes directly to merge, false evaluates rhs.
+        LLBasicBlock* rhs_bb = builder.create_block()
+        LLBasicBlock* merge_bb = builder.create_block()
+
+        LLValue left_val = self.translate_expr_value(left, builder)
+        LLBasicBlock* lhs_bb = builder.current_block
+        builder.cond_br(left_val, merge_bb, rhs_bb)
+
+        builder.set_insert_point(rhs_bb)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        builder.br(merge_bb)
+
+        builder.set_insert_point(merge_bb)
+        Vec<LLValue> incoming_values = Vec<LLValue>.new()
+        Vec<LLBasicBlock*> incoming_blocks = Vec<LLBasicBlock*>.new()
+        incoming_values.push(builder.int_const(1, 1))
+        incoming_blocks.push(lhs_bb)
+        incoming_values.push(right_val)
+        incoming_blocks.push(rhs_bb)
+
+        return builder.phi(LLType.new("i1"), incoming_values, incoming_blocks)
+    }
+
+    LLValue translate_add_assign(HExpr* left, HExpr* right, LLBuilder* builder) {
+        // pointer += integer: offset the pointer by integer
+        // otherwise: normal addition and assignment
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+
+        if left_ty.kind.is_pointer() {
+            LLValue ptr_ptr = self.translate_expr_lvalue(left, builder)
+            LLValue ptr_val = builder.load(ptr_ptr)
+            LLValue int_val = self.translate_expr_value(right, builder)
+            LLValue new_ptr_val = builder.offset(ptr_val, int_val)
+            builder.store(new_ptr_val, ptr_ptr)
+            return new_ptr_val
+        } else {
+            LLValue left_ptr = self.translate_expr_lvalue(left, builder)
+            LLValue left_val = builder.load(left_ptr)
+            LLValue right_val = self.translate_expr_value(right, builder)
+            bool is_float = left_ty.kind.is_float()
+            LLValue result = builder.add(left_val, right_val, is_float)
+            builder.store(result, left_ptr)
+            return result
+        }
+    }
+
+    LLValue translate_sub_assign(HExpr* left, HExpr* right, LLBuilder* builder) {
+        // pointer -= integer: offset the pointer by negative integer
+        // otherwise: normal subtraction and assignment
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+
+        if left_ty.kind.is_pointer() {
+            LLValue ptr_ptr = self.translate_expr_lvalue(left, builder)
+            LLValue ptr_val = builder.load(ptr_ptr)
+            LLValue int_val = self.translate_expr_value(right, builder)
+            LLValue neg_int_val = builder.neg(int_val, false)
+            LLValue new_ptr_val = builder.offset(ptr_val, neg_int_val)
+            builder.store(new_ptr_val, ptr_ptr)
+            return new_ptr_val
+        } else {
+            LLValue left_ptr = self.translate_expr_lvalue(left, builder)
+            LLValue left_val = builder.load(left_ptr)
+            LLValue right_val = self.translate_expr_value(right, builder)
+            bool is_float = left_ty.kind.is_float()
+            LLValue result = builder.sub(left_val, right_val, is_float)
+            builder.store(result, left_ptr)
+            return result
+        }
+    }
+
+    LLValue translate_mul_assign(HExpr* left, HExpr* right, LLBuilder* builder) {
+        LLValue left_ptr = self.translate_expr_lvalue(left, builder)
+        LLValue left_val = builder.load(left_ptr)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        bool is_float = self.type_ctx.get_type(left.type_id).kind.is_float()
+        LLValue result = builder.mul(left_val, right_val, is_float)
+        builder.store(result, left_ptr)
+        return result
+    }
+
+    LLValue translate_div_assign(HExpr* left, HExpr* right, LLBuilder* builder) {
+        LLValue left_ptr = self.translate_expr_lvalue(left, builder)
+        LLValue left_val = builder.load(left_ptr)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+        bool is_signed = true
+        if left_ty.kind.is_integer() {
+            is_signed = left_ty.kind.as_int().is_signed
+        }
+        bool is_float = left_ty.kind.is_float()
+        LLValue result = builder.div(left_val, right_val, is_signed, is_float)
+        builder.store(result, left_ptr)
+        return result
+    }
+
+    LLValue translate_mod_assign(HExpr* left, HExpr* right, LLBuilder* builder) {
+        LLValue left_ptr = self.translate_expr_lvalue(left, builder)
+        LLValue left_val = builder.load(left_ptr)
+        LLValue right_val = self.translate_expr_value(right, builder)
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+        bool is_signed = true
+        if left_ty.kind.is_integer() {
+            is_signed = left_ty.kind.as_int().is_signed
+        }
+        bool is_float = left_ty.kind.is_float()
+        LLValue result = builder.rem(left_val, right_val, is_signed, is_float)
+        builder.store(result, left_ptr)
+        return result
+    }
+}
