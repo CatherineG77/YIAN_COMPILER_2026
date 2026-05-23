@@ -332,12 +332,22 @@ impl TypeCtx {
         return name
     }
 
+    // pub String export() {
+    //     String result = String.new()
+    //     for id in self.types {
+    //         Type* t = &self.types[id]
+    //         result += id.to_string() + ": " + self.get_name(id) + "\n"
+    //     }
+    //     return result
+    // }
     pub String export() {
         String result = String.new()
-        for id in self.types {
-            Type* t = &self.types[id]
-            result += id.to_string() + ": " + self.get_name(id) + "\n"
+        for id in 1..self.next_id {
+            if self.types.contains(id) {
+                result += id.to_string() + ": " + self.get_name(id) + "\n"
+            }
         }
         return result
     }
+
 }

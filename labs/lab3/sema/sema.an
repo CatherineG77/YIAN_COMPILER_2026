@@ -306,6 +306,32 @@ impl Sema {
         // 2. 构造 if !condition { break } 的 HIR 结构
         // 3. 在 body 中依次推入上面的 if 语句和循环体语句 (注意维护符号表作用域)
         // 4. 将最终组合出的 HStmt.Loop 放入 out 中
+        HExpr condition = self.parse_expr(&w.condition, Option<u64>.Some(12))
+        HExpr* condition_ptr = dyn HExpr
+        *condition_ptr = condition
+        HExpr not_condition = HExpr(
+            kind=HExprKind.Unary(op=UnaryOp.LogicNot, operand=condition_ptr),
+            is_lvalue=false,
+            type_id=12
+        )
+
+        Vec<HStmt> break_branch = Vec<HStmt>.new()
+        break_branch.push(HStmt.Break)
+
+        Vec<HStmt> body = Vec<HStmt>.new()
+        body.push(HStmt.If(
+            condition=not_condition,
+            then_branch=break_branch,
+            else_branch=Option<Vec<HStmt>>.None
+        ))
+
+        self.symbol_ctx.enter_scope()
+        for stmt in w.body {
+            self.parse_stmt(&stmt, &body)
+        }
+        self.symbol_ctx.exit_scope()
+
+        out.push(HStmt.Loop(body=body))
 
         self.current_loop_updates.pop()
     }
@@ -319,6 +345,46 @@ impl Sema {
         // 2. 将 f.condition 的判断类似 while 一样处理成 if !condition { break }
         // 3. 在 body 最末尾别忘了追加 f.update
         // 4. for 循环的 continue 语句不会直接跳转到循环开头，而是会先执行一次 f.update 这个表达式
+        self.symbol_ctx.enter_scope()
+
+        if f.init.is_some() {
+            self.parse_stmt(f.init.unwrap(), out)
+        }
+
+        Vec<HStmt> body = Vec<HStmt>.new()
+        self.symbol_ctx.enter_scope()
+
+        if f.condition.is_some() {
+            HExpr condition = self.parse_expr(&f.condition.unwrap(), Option<u64>.Some(12))
+            HExpr* condition_ptr = dyn HExpr
+            *condition_ptr = condition
+            HExpr not_condition = HExpr(
+                kind=HExprKind.Unary(op=UnaryOp.LogicNot, operand=condition_ptr),
+                is_lvalue=false,
+                type_id=12
+            )
+
+            Vec<HStmt> break_branch = Vec<HStmt>.new()
+            break_branch.push(HStmt.Break)
+            body.push(HStmt.If(
+                condition=not_condition,
+                then_branch=break_branch,
+                else_branch=Option<Vec<HStmt>>.None
+            ))
+        }
+
+        for stmt in f.body {
+            self.parse_stmt(&stmt, &body)
+        }
+
+        if f.update.is_some() {
+            HExpr update_expr = self.parse_expr(&f.update.unwrap(), Option<u64>.None)
+            body.push(HStmt.ExprStmt(expr=update_expr))
+        }
+
+        self.symbol_ctx.exit_scope()
+        out.push(HStmt.Loop(body=body))
+        self.symbol_ctx.exit_scope()
 
         self.current_loop_updates.pop()
     }
@@ -510,6 +576,10 @@ impl Sema {
         // TODO: 查出当前 id 对应的符号ID，并将它的类型提取出来
         // 使用 symbol_ctx 的 lookup_strict 查找并获取 Symbol
         // 最后包装并返回一个 is_lvalue=true 的 HExprKind.Var(...)
+        u64 sym_id = self.symbol_ctx.lookup_strict(id.clone())
+        Symbol* sym = self.symbol_ctx.get_symbol(sym_id)
+        HExprKind kind = HExprKind.Var(var_symbol_id=sym_id)
+        return HExpr(kind=kind, is_lvalue=true, type_id=sym.type_id)
     }
 
     HExpr parse_expr_call(CallExpr* call) {
@@ -573,6 +643,33 @@ impl Sema {
             // 1. 如果 base_val 的类型是指针类型，将 base_val 更新为其解引用(`Deref`)运算后的结果，随后继续 `loop` 判断内层类型
             // 2. 如果 base_val 是结构体类型，查找 `fa.field` 这个名字是否在其中，找到了就将其打包为 `FieldAccess` HIR表达式并返回。
             // 3. 否则，报错：panic("Field access on non-struct, non-pointer type")
+            TypeKind base_kind = self.type_ctx.get_type(base_val.type_id).kind
+            if base_kind.is_pointer() {
+                PointerType ptr_type = base_kind.as_pointer()
+                HExpr* _base = dyn HExpr
+                *_base = base_val
+                base_val = HExpr(
+                    kind=HExprKind.Unary(op=UnaryOp.Deref, operand=_base),
+                    is_lvalue=true,
+                    type_id=ptr_type.pointee_type_id
+                )
+                continue
+            }
+
+            if base_kind.is_struct() {
+                StructType struct_type = base_kind.as_struct()
+                for field in struct_type.fields {
+                    if field.name == fa.field {
+                        HExpr* _base = dyn HExpr
+                        *_base = base_val
+                        HExprKind kind = HExprKind.FieldAccess(base=_base, field=field)
+                        return HExpr(kind=kind, is_lvalue=base_val.is_lvalue, type_id=field.type_id)
+                    }
+                }
+                panic("Field not found in struct")
+            }
+
+            panic("Field access on non-struct, non-pointer type")
         }
     }
 
@@ -763,6 +860,35 @@ impl Sema {
         // 1. 如果 left_kind 或 right_kind 是指针类型，则只允许 Pointer + u64 或 u64 + Pointer
         //    如果是这种情况，你需要使用 `Option<u64>.Some(8)` 重新解析期待为 `u64` 操作数的部分，且相加结果为对应的指针类型。
         // 2. 如果都不是指针类型，判断类型是否均为数值类型（整数或浮点）并且类型互相一致。此时应当继承两者相同的类型 ID。如果不一致或其他非法计算，应当返回 type_mismatch_error 或 panic。
+        if left_kind.is_pointer() {
+            if right_kind.is_pointer() {
+                panic("Cannot add two pointers")
+            }
+            right = self.parse_expr(b.right, Option<u64>.Some(8))
+            result_type_id = left.type_id
+        } elif right_kind.is_pointer() {
+            left = self.parse_expr(b.left, Option<u64>.Some(8))
+            result_type_id = right.type_id
+        } else {
+            left = self.parse_expr(b.left, expected_type_id)
+            right = self.parse_expr(b.right, Option<u64>.Some(left.type_id))
+            left_kind = self.type_ctx.get_type(left.type_id).kind
+            right_kind = self.type_ctx.get_type(right.type_id).kind
+
+            if not (left_kind.is_integer() or left_kind.is_float()) {
+                panic("Arithmetic operators require integer or float types")
+            }
+
+            if not (right_kind.is_integer() or right_kind.is_float()) {
+                panic("Arithmetic operators require integer or float types")
+            }
+
+            if left.type_id != right.type_id {
+                self.type_mismatch_error(left.type_id, right.type_id)
+            }
+
+            result_type_id = left.type_id
+        }
 
         if expected_type_id.is_some() and result_type_id != expected_type_id.unwrap() {
             self.type_mismatch_error(expected_type_id.unwrap(), result_type_id)
