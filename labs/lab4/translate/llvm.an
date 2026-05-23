@@ -166,6 +166,45 @@ impl LLFunction {
         // Hint: a block is unreachable if it is unreachable from the entry block
         // Hint: use graph traversal algorithm (e.g. DFS or BFS) to find reachable blocks
         // Hint: construct a new blocks list containing only reachable blocks and replace self.blocks with it
+        Vec<LLBasicBlock*> reachable = Vec<LLBasicBlock*>.new()
+        Vec<LLBasicBlock*> worklist = Vec<LLBasicBlock*>.new()
+
+        reachable.push(self.entry_block)
+        worklist.push(self.entry_block)
+
+        u64 idx = 0
+        while idx < worklist.len() {
+            LLBasicBlock* block = worklist[idx]
+            idx += 1
+
+            for succ in block.successors {
+                bool seen = false
+                for known in reachable {
+                    if known == succ {
+                        seen = true
+                    }
+                }
+                if not seen {
+                    reachable.push(succ)
+                    worklist.push(succ)
+                }
+            }
+        }
+
+        Vec<LLBasicBlock*> new_blocks = Vec<LLBasicBlock*>.new()
+        for block in self.blocks {
+            bool keep = false
+            for known in reachable {
+                if known == block {
+                    keep = true
+                }
+            }
+            if keep {
+                new_blocks.push(block)
+            }
+        }
+
+        self.blocks = new_blocks
     }
 
     guarantee_terminated() {

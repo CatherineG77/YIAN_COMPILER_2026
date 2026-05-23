@@ -312,6 +312,39 @@ impl Translator {
         // Hint: use cond_br to branch from current block to then/else.
         // Hint: both then and else branches should end with br to merge.
         // Hint: when else is absent, false branch can jump directly to merge.
+        LLValue cond_val = self.translate_expr_value(condition, builder)
+
+        LLBasicBlock* then_bb = builder.create_block()
+        LLBasicBlock* merge_bb = builder.create_block()
+
+        if else_branch.is_some() {
+            LLBasicBlock* else_bb = builder.create_block()
+
+            builder.cond_br(cond_val, then_bb, else_bb)
+
+            builder.set_insert_point(then_bb)
+            for stmt in *then_branch {
+                self.translate_stmt(&stmt, builder)
+            }
+            builder.br(merge_bb)
+
+            builder.set_insert_point(else_bb)
+            Vec<HStmt> else_stmts = else_branch.unwrap()
+            for stmt in else_stmts {
+                self.translate_stmt(&stmt, builder)
+            }
+            builder.br(merge_bb)
+        } else {
+            builder.cond_br(cond_val, then_bb, merge_bb)
+
+            builder.set_insert_point(then_bb)
+            for stmt in *then_branch {
+                self.translate_stmt(&stmt, builder)
+            }
+            builder.br(merge_bb)
+        }
+
+        builder.set_insert_point(merge_bb)
     }
 
     translate_loop(Vec<HStmt>* body, LLBuilder* builder) {
@@ -567,6 +600,20 @@ impl Translator {
         // Hint: get target type from type_map and base element size from get_type_size.
         // Hint: if array_size exists, evaluate element count and multiply into total bytes.
         // Hint: call builder.malloc(total_size) then bitcast raw pointer to target pointer type.
+        Type* ptr_ty = self.type_ctx.get_type(type_id)
+        u64 pointee_type_id = ptr_ty.kind.as_pointer().pointee_type_id
+        LLType target_ty = self.type_map[type_id]
+
+        u64 elem_size = self.get_type_size(pointee_type_id)
+        LLValue total_size = builder.int_const(elem_size, 64)
+
+        if array_size.is_some() {
+            LLValue count = self.translate_expr_value(array_size.unwrap(), builder)
+            total_size = builder.mul(total_size, count, false)
+        }
+
+        LLValue raw_ptr = builder.malloc(total_size)
+        return builder.bitcast_(raw_ptr, target_ty)
     }
 
     LLValue translate_binary_lvalue(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
@@ -676,6 +723,10 @@ impl Translator {
         // Hint: evaluate right expression first.
         // Hint: compute lvalue address for left expression.
         // Hint: store right value into left address and return the assigned value.
+        LLValue right_val = self.translate_expr_value(right, builder)
+        LLValue left_ptr = self.translate_expr_lvalue(left, builder)
+        builder.store(right_val, left_ptr)
+        return right_val
     }
 
     LLValue translate_arithmetic_assign(BinaryOp op, HExpr* left, HExpr* right, LLBuilder* builder) {
@@ -762,6 +813,18 @@ impl Translator {
         // Hint: if left is pointer, evaluate pointer value then use builder.offset.
         // Hint: if left is array, compute array lvalue address then use builder.index.
         // Hint: panic for unsupported left operand kinds.
+        LLValue index_val = self.translate_expr_value(right, builder)
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+
+        if left_ty.kind.is_pointer() {
+            LLValue ptr_val = self.translate_expr_value(left, builder)
+            return builder.offset(ptr_val, index_val)
+        } elif left_ty.kind.is_array() {
+            LLValue array_ptr = self.translate_expr_lvalue(left, builder)
+            return builder.index(array_ptr, index_val)
+        } else {
+            panic("Left operand of index expression must be an array or a pointer")
+        }
     }
 
     LLValue translate_deref_lvalue(HExpr* operand, LLBuilder* builder) {
@@ -775,6 +838,23 @@ impl Translator {
         // Hint: pointer + int and int + pointer should both lower to builder.offset.
         // Hint: for non-pointer cases, evaluate both sides and call builder.add.
         // Hint: pass is_float=true for floating-point addition.
+        Type* left_ty = self.type_ctx.get_type(left.type_id)
+        Type* right_ty = self.type_ctx.get_type(right.type_id)
+
+        if left_ty.kind.is_pointer() {
+            LLValue ptr_val = self.translate_expr_value(left, builder)
+            LLValue int_val = self.translate_expr_value(right, builder)
+            return builder.offset(ptr_val, int_val)
+        } elif right_ty.kind.is_pointer() {
+            LLValue int_val = self.translate_expr_value(left, builder)
+            LLValue ptr_val = self.translate_expr_value(right, builder)
+            return builder.offset(ptr_val, int_val)
+        } else {
+            LLValue left_val = self.translate_expr_value(left, builder)
+            LLValue right_val = self.translate_expr_value(right, builder)
+            bool is_float = left_ty.kind.is_float()
+            return builder.add(left_val, right_val, is_float)
+        }
     }
 
     LLValue translate_sub(HExpr* left, HExpr* right, LLBuilder* builder) {

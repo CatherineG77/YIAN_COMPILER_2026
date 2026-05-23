@@ -104,21 +104,21 @@ impl SymbolCtx {
         panic((String.from("Symbol not found: ") + name).as_str())
     }
 
-    // pub String export() {
-    //     String result = String.new()
-    //     for id in self.all_symbols {
-    //         Symbol sym = self.all_symbols[id]
-    //         result += sym.to_string() + "\n"
-    //     }
-    //     return result
-    // }
     pub String export() {
         String result = String.new()
-        for id in 0..self.next_id {
+        for id in self.all_symbols {
             Symbol sym = self.all_symbols[id]
             result += sym.to_string() + "\n"
         }
         return result
     }
+    // pub String export() {
+    //     String result = String.new()
+    //     for id in 0..self.next_id {
+    //         Symbol sym = self.all_symbols[id]
+    //         result += sym.to_string() + "\n"
+    //     }
+    //     return result
+    // }
 
 }
