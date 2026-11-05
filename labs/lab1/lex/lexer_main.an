@@ -24,10 +24,11 @@ i32 main() {
     tests.push("04")
     tests.push("05")
     tests.push("06")
-    tests.push("07")
-    tests.push("08")
-    tests.push("09")
-    tests.push("10")
+    // Public repository contains only 01-06; enable 07-10 when their inputs are available.
+    // tests.push("07")
+    // tests.push("08")
+    // tests.push("09")
+    // tests.push("10")
 
 	for test in tests {
 		str input_path = (String.from("labs/lab1/test_cases/") + test + ".an").as_str()
